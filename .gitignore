@@ -1,41 +1,24 @@
-# Prerequisites
+# Arduino / Teensy Compiled files
+*.hex
+*.elf
+*.bin
+*.eep
 *.d
-
-# Compiled Object files
-*.slo
-*.lo
 *.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
 *.a
-*.lib
+*.lss
+*.sym
+*.map
 
-# Executables
-*.exe
-*.out
-*.app
+# Arduino IDE generated folders
+build/
+.arduino/
 
-# debug information files
-*.dwo
+# Mac & Windows System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code / Other IDEs (falls du mal wechselst)
+.vscode/
+.pio/
