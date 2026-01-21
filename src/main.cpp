@@ -38,7 +38,7 @@ const int sw_Nose_Taxi    = 19;
 const int sw_Nose_TO      = 20; 
 const int sw_RwyTurnoff   = 21; 
 const int sw_Landing_Master = 22; 
-const int pinOHP_Detect   = 23; 
+const int pinOHP_Detect   = 1;//23 hat nicht funktioniert weil auf LOW aus unbek. Grund
 const int sw_Seatbelts    = 24; 
 const int sw_Dome_Dim     = 25; 
 const int sw_Dome_Bright  = 26; 
@@ -278,7 +278,7 @@ void loop() {
     else if (cmd == "day") { brightnessScale = 1.0; Serial.println(">> MODE: DAY (100%)"); }
     else if (cmd == "status") {
         Serial.print("OHP STATUS: "); Serial.println(ohpConnected ? "CONNECTED (LOW)" : "DISCONNECTED (HIGH)");
-        Serial.print("RAW PIN 23 READ: "); Serial.println(digitalRead(pinOHP_Detect));
+        Serial.print("RAW PIN 1 READ: "); Serial.println(digitalRead(pinOHP_Detect));
     }
     
     // Calibration
