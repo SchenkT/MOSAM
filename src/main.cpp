@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//          MOSAM v2.3 - OHP MASTER (Help & Pin 1 Fix)
+//      MOSAM v2.4 - OHP MASTER (Advanced Status Report)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -39,8 +39,7 @@ const int sw_Nose_TO      = 20;
 const int sw_RwyTurnoff   = 21; 
 const int sw_Landing_Master = 22; 
 
-// FIX: Wir nutzen Pin 1 statt 23, da 23 Probleme machte
-const int pinOHP_Detect   = 1; 
+const int pinOHP_Detect   = 1; // Pin 1 ist Detect
 
 const int sw_Seatbelts    = 24; 
 const int sw_Dome_Dim     = 25; 
@@ -95,7 +94,7 @@ const int STROBE_FLASH_VAL = 50; const int NAV_WING_VAL = 40;
 const int NAV_TAIL_DIM = 10; const int BEACON_VAL = 255; 
 const int VAL_LANDING_MAX = 100; const int VAL_RUNWAY_DIM = 40;
 
-// --- DATAREFS DECLARATION (Leer) ---
+// --- DATAREFS DECLARATION ---
 FlightSimInteger xNavLight;
 FlightSimInteger xBeaconLight;
 FlightSimInteger xStrobeLight;
@@ -109,7 +108,7 @@ FlightSimFloat   xPitch;
 FlightSimFloat   xEng1N1;     
 FlightSimFloat   xEng2N1;     
 
-// Write Refs (Leer deklarieren)
+// Write Refs
 FlightSimInteger wBeacon;
 FlightSimInteger wStrobe; 
 FlightSimInteger wNav; 
@@ -236,14 +235,13 @@ void setup() {
   supRight.attach(pinSupRight); supRight.write(SUP_R_RETRACT);  delay(200);
   supFront.attach(pinSupFront); supFront.write(SUP_F_RETRACT);  delay(200);
 
-  Serial.println("--- MOSAM v2.3 OHP AUTO-DETECT READY ---");
+  Serial.println("--- MOSAM v2.4 STATUS REPORT READY ---");
   Serial.println("INFO: Type 'help' for commands.");
 }
 
 void loop() {
   FlightSim.update(); 
   
-  // Program / Demo Button
   if (digitalRead(pinProgButton) == LOW) {
     delay(50); 
     if (digitalRead(pinProgButton) == LOW) {
@@ -258,11 +256,9 @@ void loop() {
     }
   }
 
-  // --- OHP AUTO DETECT LOGIK ---
+  // --- OHP AUTO DETECT ---
   unsigned long now = millis();
-  
   if (!demoModeActive && !calMode) {
-      // Pin 1 prüfung (LOW = Connected)
       if (digitalRead(pinOHP_Detect) == LOW) {
           ohpConnected = true;
           if (now - lastOHPUpdate >= OHP_REFRESH_RATE) {
@@ -274,36 +270,72 @@ void loop() {
       }
   }
 
-  // --- SERIAL COMMANDS / HELP ---
+  // --- SERIAL COMMANDS ---
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
     
     if (cmd == "help" || cmd == "?") {
-        Serial.println("\n=== MOSAM v2.3 COMMAND LIST ===");
-        Serial.println("  status        : Check OHP Connection & States");
-        Serial.println("  engrun        : Enable Engine PWM");
-        Serial.println("  engstop       : Disable Engine PWM");
-        Serial.println("  day           : Set LED Brightness to 100%");
-        Serial.println("  night         : Set LED Brightness to 30%");
-        Serial.println("--- CALIBRATION ---");
-        Serial.println("  cal_left <val>: Set Roll Limit Left (e.g. 10)");
-        Serial.println("  cal_right<val>: Set Roll Limit Right");
-        Serial.println("  cal_up   <val>: Set Pitch Up Limit");
-        Serial.println("  cal_down <val>: Set Pitch Down Limit");
-        Serial.println("  cal_off       : Exit Calibration Mode");
+        Serial.println("\n=== MOSAM v2.4 COMMAND LIST ===");
+        Serial.println("  status        : Show full system report (Inputs, SimData, States)");
+        Serial.println("  engrun / stop : Control Engine PWM");
+        Serial.println("  day / night   : Control Brightness");
+        Serial.println("  cal_[dir] [v] : Calibration (left, right, up, down)");
         Serial.println("===============================\n");
     }
     else if (cmd == "engrun") { run_eng = 1; Serial.println(">> ENGINES ENABLED"); } 
     else if (cmd == "engstop") { run_eng = 0; Serial.println(">> ENGINES STOPPED"); }
     else if (cmd == "night") { brightnessScale = 0.3; Serial.println(">> MODE: NIGHT (30%)"); }
     else if (cmd == "day") { brightnessScale = 1.0; Serial.println(">> MODE: DAY (100%)"); }
+    
+    // --- STATUS REPORT UPDATE ---
     else if (cmd == "status") {
-        Serial.print("OHP STATUS: "); 
-        if (ohpConnected) Serial.println("CONNECTED (Bridge detected)");
-        else Serial.println("DISCONNECTED (No bridge)");
-        Serial.print("PIN "); Serial.print(pinOHP_Detect); 
-        Serial.print(" READ: "); Serial.println(digitalRead(pinOHP_Detect));
+        Serial.println("\n=== MOSAM v2.4 SYSTEM REPORT ===");
+
+        // 1. HARDWARE INPUTS
+        Serial.println("[OHP RAW INPUTS] (0=ON/GND, 1=OFF/OPEN)");
+        Serial.print("  DETECT(P1):"); Serial.print(digitalRead(pinOHP_Detect)); 
+        Serial.print(" | OHP_LOGIC:"); Serial.println(ohpConnected ? "ACTIVE" : "IGNORED");
+        
+        Serial.print("  LIGHTS: Bcn:"); Serial.print(digitalRead(sw_Beacon));
+        Serial.print(" Strb(A/O):"); Serial.print(digitalRead(sw_Strobe_Auto)); Serial.print("/"); Serial.print(digitalRead(sw_Strobe_On));
+        Serial.print(" Nav(1/2):"); Serial.print(digitalRead(sw_Nav_1)); Serial.print("/"); Serial.print(digitalRead(sw_Nav_2));
+        Serial.print(" Nose(T/TO):"); Serial.print(digitalRead(sw_Nose_Taxi)); Serial.print("/"); Serial.print(digitalRead(sw_Nose_TO));
+        Serial.print(" Land:"); Serial.print(digitalRead(sw_Landing_Master));
+        Serial.print(" Rwy:"); Serial.print(digitalRead(sw_RwyTurnoff));
+        Serial.print(" Dome(D/B):"); Serial.print(digitalRead(sw_Dome_Dim)); Serial.print("/"); Serial.println(digitalRead(sw_Dome_Bright));
+        
+        Serial.print("  SYSTEM: APU(M/S/B):"); Serial.print(digitalRead(sw_APU_Master)); Serial.print("/"); Serial.print(digitalRead(sw_APU_Start)); Serial.print("/"); Serial.print(digitalRead(sw_APU_Bleed));
+        Serial.print(" Ice(W/E1/E2):"); Serial.print(digitalRead(sw_Ice_Wing)); Serial.print("/"); Serial.print(digitalRead(sw_Ice_Eng1)); Serial.print("/"); Serial.print(digitalRead(sw_Ice_Eng2));
+        Serial.print(" Wiper(S/F):"); Serial.print(digitalRead(sw_Wiper_Slow)); Serial.print("/"); Serial.println(digitalRead(sw_Wiper_Fast));
+
+        Serial.print("  HYD/AIR: Elec:"); Serial.print(digitalRead(sw_ElecPump));
+        Serial.print(" PTU:"); Serial.print(digitalRead(sw_PTU_Off)); 
+        Serial.print(" XBleed:"); Serial.print(digitalRead(sw_XBleed_Open)); 
+        Serial.print(" Packs:"); Serial.print(digitalRead(sw_Pack1)); Serial.print("/"); Serial.println(digitalRead(sw_Pack2));
+
+        // 2. SIMULATOR VALUES
+        Serial.println("[SIMULATOR DATA]");
+        if (FlightSim.isEnabled()) {
+            Serial.print("  PITCH:"); Serial.print((float)xPitch, 1);
+            Serial.print(" | BANK:"); Serial.print((float)xBank, 1);
+            Serial.print(" | GROUND:"); Serial.println((int)xOnGround);
+            Serial.print("  GEAR:"); Serial.print((int)xGearHandle);
+            Serial.print(" | N1:"); Serial.print((float)xEng1N1, 0); Serial.print("/"); Serial.println((float)xEng2N1, 0);
+            Serial.print("  LTS(Read): Strobe="); Serial.print((int)xStrobeLight);
+            Serial.print(" Nav="); Serial.print((int)xNavLight);
+            Serial.print(" Bcn="); Serial.println((int)xBeaconLight);
+        } else {
+            Serial.println("  >> X-PLANE NOT RUNNING / NO CONNECTION <<");
+        }
+
+        // 3. INTERNAL STATES
+        Serial.println("[INTERNAL MODEL STATE]");
+        Serial.print("  Motion Targets (F/L/R): "); Serial.print(supFTarget); Serial.print(" / "); Serial.print(supLTarget); Serial.print(" / "); Serial.println(supRTarget);
+        Serial.print("  Servos Current (Nose/Main): "); Serial.print(noseCurrent); Serial.print(" / "); Serial.println(mainCurrent);
+        Serial.print("  Flags: StrobeActive="); Serial.print(strobesActive);
+        Serial.print(" | DemoMode="); Serial.println(demoModeActive);
+        Serial.println("===============================");
     }
     
     // Calibration
@@ -479,129 +511,6 @@ void loop() {
      else if (turnoffActive) analogWrite(pinLanding, (int)(VAL_RUNWAY_DIM * brightnessScale));
      else analogWrite(pinLanding, 0);
   }
-}
-
-// =========================================================
-// OHP INPUT LOGIC
-// =========================================================
-void updateOHPInputs() {
-  
-  if (digitalRead(sw_Beacon) == LOW) wBeacon = 1; else wBeacon = 0;
-
-  if (digitalRead(sw_Strobe_On) == LOW) wStrobe = 2;
-  else if (digitalRead(sw_Strobe_Auto) == LOW) wStrobe = 1;
-  else wStrobe = 0; 
-
-  if (digitalRead(sw_Nav_1) == LOW || digitalRead(sw_Nav_2) == LOW) wNav = 1; else wNav = 0;
-
-  if (digitalRead(sw_Nose_TO) == LOW) wNose = 2;
-  else if (digitalRead(sw_Nose_Taxi) == LOW) wNose = 1;
-  else wNose = 0;
-
-  if (digitalRead(sw_Landing_Master) == LOW) wLanding = 1; else wLanding = 0;
-
-  if (digitalRead(sw_RwyTurnoff) == LOW) wRwyTurn = 1; else wRwyTurn = 0;
-  if (digitalRead(sw_Seatbelts) == LOW) wSeatbelt = 1; else wSeatbelt = 0;
-  if (digitalRead(sw_Dome_Bright) == LOW) wDome = 1; else wDome = 0;
-
-  if (digitalRead(sw_Wiper_Fast) == LOW) wWiper = 3; 
-  else if (digitalRead(sw_Wiper_Slow) == LOW) wWiper = 2; 
-  else wWiper = 0;
-
-  if (digitalRead(sw_Call_Btn) == LOW) wCall = 1; else wCall = 0;
-  if (digitalRead(sw_Ice_Wing) == LOW) wIceWing = 1; else wIceWing = 0;
-  if (digitalRead(sw_Ice_Eng1) == LOW) wIceEng1 = 1; else wIceEng1 = 0;
-  if (digitalRead(sw_Ice_Eng2) == LOW) wIceEng2 = 1; else wIceEng2 = 0;
-  if (digitalRead(sw_APU_Master) == LOW) wAPUMaster = 1; else wAPUMaster = 0;
-  if (digitalRead(sw_APU_Start) == LOW) wAPUStart = 1; else wAPUStart = 0;
-  if (digitalRead(sw_APU_Bleed) == LOW) wAPUBleed = 1; else wAPUBleed = 0;
-  
-  if (digitalRead(sw_XBleed_Open) == LOW) wXBleed = 1; else wXBleed = 2; // Auto
-  if (digitalRead(sw_ElecPump) == LOW) wElecPump = 1; else wElecPump = 0;
-  if (digitalRead(sw_PTU_Off) == LOW) wPTU = 0; else wPTU = 1; // Auto default
-  if (digitalRead(sw_Pack1) == LOW) wPack1 = 1; else wPack1 = 0;
-  if (digitalRead(sw_Pack2) == LOW) wPack2 = 1; else wPack2 = 0;
-}
-
-void updateHydraulics() {
-    unsigned long now = millis();
-    if (now - lastMoveTime >= REFRESH_RATE) {
-      lastMoveTime = now;
-      if (abs(noseCurrent - noseTarget) > SPEED_GEAR) {
-         if (noseCurrent < noseTarget) noseCurrent += SPEED_GEAR; else noseCurrent -= SPEED_GEAR;
-      } else noseCurrent = noseTarget; 
-      noseGear.write((int)noseCurrent);
-      if (abs(mainCurrent - mainTarget) > SPEED_GEAR) {
-         if (mainCurrent < mainTarget) mainCurrent += SPEED_GEAR; else mainCurrent -= SPEED_GEAR;
-      } else mainCurrent = mainTarget;
-      mainGear.write((int)mainCurrent);
-      if (abs(supLCurrent - supLTarget) > SPEED_MOTION) {
-         if (supLCurrent < supLTarget) supLCurrent += SPEED_MOTION; else supLCurrent -= SPEED_MOTION;
-      } else supLCurrent = supLTarget;
-      supLeft.write(map((int)supLCurrent, 0, 100, SUP_L_RETRACT, SUP_L_EXTEND));
-      if (abs(supRCurrent - supRTarget) > SPEED_MOTION) {
-         if (supRCurrent < supRTarget) supRCurrent += SPEED_MOTION; else supRCurrent -= SPEED_MOTION;
-      } else supRCurrent = supRTarget;
-      supRight.write(map((int)supRCurrent, 0, 100, SUP_R_RETRACT, SUP_R_EXTEND));
-      if (abs(supFCurrent - supFTarget) > SPEED_MOTION) {
-         if (supFCurrent < supFTarget) supFCurrent += SPEED_MOTION; else supFCurrent -= SPEED_MOTION;
-      } else supFCurrent = supFTarget;
-      supFront.write(map((int)supFCurrent, 0, 100, SUP_F_RETRACT, SUP_F_EXTEND));
-    }
-}
-
-void runDemoSequence() {
-  Serial.println(">> DEMO START");
-  demoModeActive = true; demoHasRun = true;
-  navsActive=0; beaconActive=0; strobesActive=0; landingActive=0; turnoffActive=0;
-  demoNoseLightVal = VAL_OFF; run_eng = 0; eng1TargetPWM = 0; eng2TargetPWM = 0;
-  noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN; supLTarget=0; supRTarget=0; supFTarget=0; 
-  
-  navsActive = true; waitAndAnimate(2000);
-  beaconActive = true; waitAndAnimate(2000);
-  run_eng = 1; eng1TargetPWM = ENG_IDLE_MIN; waitAndAnimate(3000); 
-  eng2TargetPWM = ENG_IDLE_MIN; waitAndAnimate(3000); 
-  demoNoseLightVal = VAL_TAXI; turnoffActive = true; waitAndAnimate(2000);
-  strobesActive = true; waitAndAnimate(2000);
-  demoNoseLightVal = VAL_TO; landingActive = true; waitAndAnimate(2000);
-  eng1TargetPWM = 40; eng2TargetPWM = 40; waitAndAnimate(2000);
-  supFTarget = 70; supLTarget = 0; supRTarget = 0; waitAndAnimate(2000);
-  
-  int base = MOTION_NEUTRAL + AIR_LIFT_OFFSET;
-  int pitchMove = 35; 
-  supFTarget = constrain(base + pitchMove, 0, 100);
-  supLTarget = constrain(base - pitchMove, 0, 100);
-  supRTarget = constrain(base - pitchMove, 0, 100); waitAndAnimate(4000); 
-
-  noseTarget = NOSE_POS_UP; mainTarget = MAIN_POS_UP; waitAndAnimate(4000); 
-  pitchMove = 10; int rollMove = -35; 
-  supFTarget = constrain(base + pitchMove, 0, 100);
-  supLTarget = constrain(base + rollMove - pitchMove, 0, 100);
-  supRTarget = constrain(base - rollMove - pitchMove, 0, 100); waitAndAnimate(5000); 
-  landingActive = false; turnoffActive = false; demoNoseLightVal = VAL_OFF; waitAndAnimate(2000);
-  supFTarget = base; supLTarget = base; supRTarget = base; waitAndAnimate(4000); 
-  rollMove = 35; 
-  supFTarget = constrain(base, 0, 100);
-  supLTarget = constrain(base + rollMove, 0, 100);
-  supRTarget = constrain(base - rollMove, 0, 100); waitAndAnimate(5000); 
-  pitchMove = -10; 
-  supFTarget = constrain(base + pitchMove, 0, 100);
-  supLTarget = constrain(base - pitchMove, 0, 100); 
-  supRTarget = constrain(base - pitchMove, 0, 100);
-  noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN;
-  eng1TargetPWM = ENG_IDLE_MIN; eng2TargetPWM = ENG_IDLE_MIN; waitAndAnimate(5000); 
-  landingActive = true; demoNoseLightVal = VAL_TO; waitAndAnimate(2000);
-  pitchMove = 15; 
-  supFTarget = constrain(base + pitchMove, 0, 100);
-  supLTarget = constrain(base - pitchMove, 0, 100);
-  supRTarget = constrain(base - pitchMove, 0, 100); waitAndAnimate(3000);
-  supLTarget = 0; supRTarget = 0; supFTarget = 0; waitAndAnimate(1000); waitAndAnimate(2000);
-  strobesActive = false; landingActive = false; waitAndAnimate(2000);
-  demoNoseLightVal = VAL_OFF; waitAndAnimate(2000);
-  eng1TargetPWM = 0; eng2TargetPWM = 0; waitAndAnimate(2000);
-  beaconActive = false; waitAndAnimate(2000);
-  navsActive = false; waitAndAnimate(2000);
-  Serial.println(">> DEMO END"); demoModeActive = false;
 }
 
 void waitAndAnimate(int waitTime) {
