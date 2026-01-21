@@ -1,0 +1,5 @@
+{
+    "configuration": "usb=flightsimjoystick,speed=600,opt=o2std,keys=de-de",
+    "board": "teensy:avr:teensy41",
+    "port": "COM1"
+}
