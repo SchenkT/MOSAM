@@ -513,6 +513,129 @@ void loop() {
   }
 }
 
+// =========================================================
+// OHP INPUT LOGIC
+// =========================================================
+void updateOHPInputs() {
+  
+  if (digitalRead(sw_Beacon) == LOW) wBeacon = 1; else wBeacon = 0;
+
+  if (digitalRead(sw_Strobe_On) == LOW) wStrobe = 2;
+  else if (digitalRead(sw_Strobe_Auto) == LOW) wStrobe = 1;
+  else wStrobe = 0; 
+
+  if (digitalRead(sw_Nav_1) == LOW || digitalRead(sw_Nav_2) == LOW) wNav = 1; else wNav = 0;
+
+  if (digitalRead(sw_Nose_TO) == LOW) wNose = 2;
+  else if (digitalRead(sw_Nose_Taxi) == LOW) wNose = 1;
+  else wNose = 0;
+
+  if (digitalRead(sw_Landing_Master) == LOW) wLanding = 1; else wLanding = 0;
+
+  if (digitalRead(sw_RwyTurnoff) == LOW) wRwyTurn = 1; else wRwyTurn = 0;
+  if (digitalRead(sw_Seatbelts) == LOW) wSeatbelt = 1; else wSeatbelt = 0;
+  if (digitalRead(sw_Dome_Bright) == LOW) wDome = 1; else wDome = 0;
+
+  if (digitalRead(sw_Wiper_Fast) == LOW) wWiper = 3; 
+  else if (digitalRead(sw_Wiper_Slow) == LOW) wWiper = 2; 
+  else wWiper = 0;
+
+  if (digitalRead(sw_Call_Btn) == LOW) wCall = 1; else wCall = 0;
+  if (digitalRead(sw_Ice_Wing) == LOW) wIceWing = 1; else wIceWing = 0;
+  if (digitalRead(sw_Ice_Eng1) == LOW) wIceEng1 = 1; else wIceEng1 = 0;
+  if (digitalRead(sw_Ice_Eng2) == LOW) wIceEng2 = 1; else wIceEng2 = 0;
+  if (digitalRead(sw_APU_Master) == LOW) wAPUMaster = 1; else wAPUMaster = 0;
+  if (digitalRead(sw_APU_Start) == LOW) wAPUStart = 1; else wAPUStart = 0;
+  if (digitalRead(sw_APU_Bleed) == LOW) wAPUBleed = 1; else wAPUBleed = 0;
+  
+  if (digitalRead(sw_XBleed_Open) == LOW) wXBleed = 1; else wXBleed = 2; // Auto
+  if (digitalRead(sw_ElecPump) == LOW) wElecPump = 1; else wElecPump = 0;
+  if (digitalRead(sw_PTU_Off) == LOW) wPTU = 0; else wPTU = 1; // Auto default
+  if (digitalRead(sw_Pack1) == LOW) wPack1 = 1; else wPack1 = 0;
+  if (digitalRead(sw_Pack2) == LOW) wPack2 = 1; else wPack2 = 0;
+}
+
+void updateHydraulics() {
+    unsigned long now = millis();
+    if (now - lastMoveTime >= REFRESH_RATE) {
+      lastMoveTime = now;
+      if (abs(noseCurrent - noseTarget) > SPEED_GEAR) {
+         if (noseCurrent < noseTarget) noseCurrent += SPEED_GEAR; else noseCurrent -= SPEED_GEAR;
+      } else noseCurrent = noseTarget; 
+      noseGear.write((int)noseCurrent);
+      if (abs(mainCurrent - mainTarget) > SPEED_GEAR) {
+         if (mainCurrent < mainTarget) mainCurrent += SPEED_GEAR; else mainCurrent -= SPEED_GEAR;
+      } else mainCurrent = mainTarget;
+      mainGear.write((int)mainCurrent);
+      if (abs(supLCurrent - supLTarget) > SPEED_MOTION) {
+         if (supLCurrent < supLTarget) supLCurrent += SPEED_MOTION; else supLCurrent -= SPEED_MOTION;
+      } else supLCurrent = supLTarget;
+      supLeft.write(map((int)supLCurrent, 0, 100, SUP_L_RETRACT, SUP_L_EXTEND));
+      if (abs(supRCurrent - supRTarget) > SPEED_MOTION) {
+         if (supRCurrent < supRTarget) supRCurrent += SPEED_MOTION; else supRCurrent -= SPEED_MOTION;
+      } else supRCurrent = supRTarget;
+      supRight.write(map((int)supRCurrent, 0, 100, SUP_R_RETRACT, SUP_R_EXTEND));
+      if (abs(supFCurrent - supFTarget) > SPEED_MOTION) {
+         if (supFCurrent < supFTarget) supFCurrent += SPEED_MOTION; else supFCurrent -= SPEED_MOTION;
+      } else supFCurrent = supFTarget;
+      supFront.write(map((int)supFCurrent, 0, 100, SUP_F_RETRACT, SUP_F_EXTEND));
+    }
+}
+
+void runDemoSequence() {
+  Serial.println(">> DEMO START");
+  demoModeActive = true; demoHasRun = true;
+  navsActive=0; beaconActive=0; strobesActive=0; landingActive=0; turnoffActive=0;
+  demoNoseLightVal = VAL_OFF; run_eng = 0; eng1TargetPWM = 0; eng2TargetPWM = 0;
+  noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN; supLTarget=0; supRTarget=0; supFTarget=0; 
+  
+  navsActive = true; waitAndAnimate(2000);
+  beaconActive = true; waitAndAnimate(2000);
+  run_eng = 1; eng1TargetPWM = ENG_IDLE_MIN; waitAndAnimate(3000); 
+  eng2TargetPWM = ENG_IDLE_MIN; waitAndAnimate(3000); 
+  demoNoseLightVal = VAL_TAXI; turnoffActive = true; waitAndAnimate(2000);
+  strobesActive = true; waitAndAnimate(2000);
+  demoNoseLightVal = VAL_TO; landingActive = true; waitAndAnimate(2000);
+  eng1TargetPWM = 40; eng2TargetPWM = 40; waitAndAnimate(2000);
+  supFTarget = 70; supLTarget = 0; supRTarget = 0; waitAndAnimate(2000);
+  
+  int base = MOTION_NEUTRAL + AIR_LIFT_OFFSET;
+  int pitchMove = 35; 
+  supFTarget = constrain(base + pitchMove, 0, 100);
+  supLTarget = constrain(base - pitchMove, 0, 100);
+  supRTarget = constrain(base - pitchMove, 0, 100); waitAndAnimate(4000); 
+
+  noseTarget = NOSE_POS_UP; mainTarget = MAIN_POS_UP; waitAndAnimate(4000); 
+  pitchMove = 10; int rollMove = -35; 
+  supFTarget = constrain(base + pitchMove, 0, 100);
+  supLTarget = constrain(base + rollMove - pitchMove, 0, 100);
+  supRTarget = constrain(base - rollMove - pitchMove, 0, 100); waitAndAnimate(5000); 
+  landingActive = false; turnoffActive = false; demoNoseLightVal = VAL_OFF; waitAndAnimate(2000);
+  supFTarget = base; supLTarget = base; supRTarget = base; waitAndAnimate(4000); 
+  rollMove = 35; 
+  supFTarget = constrain(base, 0, 100);
+  supLTarget = constrain(base + rollMove, 0, 100);
+  supRTarget = constrain(base - rollMove, 0, 100); waitAndAnimate(5000); 
+  pitchMove = -10; 
+  supFTarget = constrain(base + pitchMove, 0, 100);
+  supLTarget = constrain(base - pitchMove, 0, 100); 
+  supRTarget = constrain(base - pitchMove, 0, 100);
+  noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN;
+  eng1TargetPWM = ENG_IDLE_MIN; eng2TargetPWM = ENG_IDLE_MIN; waitAndAnimate(5000); 
+  landingActive = true; demoNoseLightVal = VAL_TO; waitAndAnimate(2000);
+  pitchMove = 15; 
+  supFTarget = constrain(base + pitchMove, 0, 100);
+  supLTarget = constrain(base - pitchMove, 0, 100);
+  supRTarget = constrain(base - pitchMove, 0, 100); waitAndAnimate(3000);
+  supLTarget = 0; supRTarget = 0; supFTarget = 0; waitAndAnimate(1000); waitAndAnimate(2000);
+  strobesActive = false; landingActive = false; waitAndAnimate(2000);
+  demoNoseLightVal = VAL_OFF; waitAndAnimate(2000);
+  eng1TargetPWM = 0; eng2TargetPWM = 0; waitAndAnimate(2000);
+  beaconActive = false; waitAndAnimate(2000);
+  navsActive = false; waitAndAnimate(2000);
+  Serial.println(">> DEMO END"); demoModeActive = false;
+}
+
 void waitAndAnimate(int waitTime) {
   unsigned long start = millis();
   while (millis() - start < (unsigned long)waitTime) {
