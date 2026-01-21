@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//            MOSAM v2.2 - OHP MASTER (PlatformIO Fix)
+//          MOSAM v2.3 - OHP MASTER (Help & Pin 1 Fix)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -38,7 +38,10 @@ const int sw_Nose_Taxi    = 19;
 const int sw_Nose_TO      = 20; 
 const int sw_RwyTurnoff   = 21; 
 const int sw_Landing_Master = 22; 
-const int pinOHP_Detect   = 1;//23 hat nicht funktioniert weil auf LOW aus unbek. Grund
+
+// FIX: Wir nutzen Pin 1 statt 23, da 23 Probleme machte
+const int pinOHP_Detect   = 1; 
+
 const int sw_Seatbelts    = 24; 
 const int sw_Dome_Dim     = 25; 
 const int sw_Dome_Bright  = 26; 
@@ -168,7 +171,7 @@ void runDemoSequence();
 void setup() {
   Serial.begin(9600);
   
-  // --- DATAREF ASSIGNMENT (Hier wird der String zugewiesen!) ---
+  // --- DATAREF ASSIGNMENT ---
   xNavLight      = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
   xBeaconLight   = XPlaneRef("sim/cockpit2/switches/beacon_on");
   xStrobeLight   = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); 
@@ -233,13 +236,14 @@ void setup() {
   supRight.attach(pinSupRight); supRight.write(SUP_R_RETRACT);  delay(200);
   supFront.attach(pinSupFront); supFront.write(SUP_F_RETRACT);  delay(200);
 
-  Serial.println("--- MOSAM v2.2 OHP AUTO-DETECT READY ---");
-  Serial.println("INFO: Press Button within 30s for DEMO, later for PROG MODE.");
+  Serial.println("--- MOSAM v2.3 OHP AUTO-DETECT READY ---");
+  Serial.println("INFO: Type 'help' for commands.");
 }
 
 void loop() {
   FlightSim.update(); 
   
+  // Program / Demo Button
   if (digitalRead(pinProgButton) == LOW) {
     delay(50); 
     if (digitalRead(pinProgButton) == LOW) {
@@ -258,6 +262,7 @@ void loop() {
   unsigned long now = millis();
   
   if (!demoModeActive && !calMode) {
+      // Pin 1 prüfung (LOW = Connected)
       if (digitalRead(pinOHP_Detect) == LOW) {
           ohpConnected = true;
           if (now - lastOHPUpdate >= OHP_REFRESH_RATE) {
@@ -269,16 +274,36 @@ void loop() {
       }
   }
 
+  // --- SERIAL COMMANDS / HELP ---
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    if (cmd == "engrun") { run_eng = 1; Serial.println(">> ENGINES ENABLED"); } 
+    
+    if (cmd == "help" || cmd == "?") {
+        Serial.println("\n=== MOSAM v2.3 COMMAND LIST ===");
+        Serial.println("  status        : Check OHP Connection & States");
+        Serial.println("  engrun        : Enable Engine PWM");
+        Serial.println("  engstop       : Disable Engine PWM");
+        Serial.println("  day           : Set LED Brightness to 100%");
+        Serial.println("  night         : Set LED Brightness to 30%");
+        Serial.println("--- CALIBRATION ---");
+        Serial.println("  cal_left <val>: Set Roll Limit Left (e.g. 10)");
+        Serial.println("  cal_right<val>: Set Roll Limit Right");
+        Serial.println("  cal_up   <val>: Set Pitch Up Limit");
+        Serial.println("  cal_down <val>: Set Pitch Down Limit");
+        Serial.println("  cal_off       : Exit Calibration Mode");
+        Serial.println("===============================\n");
+    }
+    else if (cmd == "engrun") { run_eng = 1; Serial.println(">> ENGINES ENABLED"); } 
     else if (cmd == "engstop") { run_eng = 0; Serial.println(">> ENGINES STOPPED"); }
     else if (cmd == "night") { brightnessScale = 0.3; Serial.println(">> MODE: NIGHT (30%)"); }
     else if (cmd == "day") { brightnessScale = 1.0; Serial.println(">> MODE: DAY (100%)"); }
     else if (cmd == "status") {
-        Serial.print("OHP STATUS: "); Serial.println(ohpConnected ? "CONNECTED (LOW)" : "DISCONNECTED (HIGH)");
-        Serial.print("RAW PIN 1 READ: "); Serial.println(digitalRead(pinOHP_Detect));
+        Serial.print("OHP STATUS: "); 
+        if (ohpConnected) Serial.println("CONNECTED (Bridge detected)");
+        else Serial.println("DISCONNECTED (No bridge)");
+        Serial.print("PIN "); Serial.print(pinOHP_Detect); 
+        Serial.print(" READ: "); Serial.println(digitalRead(pinOHP_Detect));
     }
     
     // Calibration
