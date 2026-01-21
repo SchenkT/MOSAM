@@ -2,7 +2,7 @@
 // FlightSim.h ist automatisch aktiv
 
 // =========================================================
-//            MOSAM v2.1 - OHP MASTER (Single Land LT)
+//            MOSAM v2.2 - OHP MASTER (Auto-Detect)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -35,17 +35,17 @@ const int pinProgButton   = 33;
 
 // LIGHTS
 const int sw_Beacon       = 14; 
-const int sw_Strobe_Auto  = 15; // 3-Way: Off - Auto - On
+const int sw_Strobe_Auto  = 15; 
 const int sw_Strobe_On    = 16; 
-const int sw_Nav_1        = 17; // 3-Way: 1 - Off - 2
+const int sw_Nav_1        = 17; 
 const int sw_Nav_2        = 18; 
-const int sw_Nose_Taxi    = 19; // 3-Way: Off - Taxi - TO
+const int sw_Nose_Taxi    = 19; 
 const int sw_Nose_TO      = 20; 
 const int sw_RwyTurnoff   = 21; 
-
-// ÄNDERUNG: Nur noch ein Master-Switch für Landing Lights
 const int sw_Landing_Master = 22; 
-// Pin 23 ist jetzt FREI (Spare)
+
+// NEU: OHP DETECT PIN (Brücke nach GND im Stecker)
+const int pinOHP_Detect   = 23; 
 
 const int sw_Seatbelts    = 24; 
 const int sw_Dome_Dim     = 25; 
@@ -71,6 +71,7 @@ const int sw_Pack2        = 0;  // Pin 0
 // --- VARIABLES & STATES ---
 unsigned long lastOHPUpdate = 0;
 const int OHP_REFRESH_RATE = 150; 
+bool ohpConnected = false; // Status Speicher
 
 // Motion Constants
 const int NOSE_POS_UP = 40; const int NOSE_POS_DOWN = 5;   
@@ -192,7 +193,7 @@ void setup() {
   xEng1N1        = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
   xEng2N1        = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
 
-  // PINS MODES
+  // PINS MODES OUTPUT
   pinMode(pinNoseLight, OUTPUT); pinMode(pinWingStrobes, OUTPUT);
   pinMode(pinTailCombined, OUTPUT); pinMode(pinWingNavs, OUTPUT);
   pinMode(pinBeacon, OUTPUT); pinMode(pinEng1, OUTPUT);
@@ -202,6 +203,9 @@ void setup() {
   // INPUTS (OHP) PULLUP
   for (int i=14; i<=40; i++) { pinMode(i, INPUT_PULLUP); }
   pinMode(sw_Pack2, INPUT_PULLUP); // Pin 0
+
+  // OHP DETECT PIN
+  pinMode(pinOHP_Detect, INPUT_PULLUP);
 
   // INIT
   analogWrite(pinNoseLight, VAL_OFF); 
@@ -218,7 +222,7 @@ void setup() {
   supRight.attach(pinSupRight); supRight.write(SUP_R_RETRACT);  delay(200);
   supFront.attach(pinSupFront); supFront.write(SUP_F_RETRACT);  delay(200);
 
-  Serial.println("--- MOSAM v2.1 OHP MASTER (SINGLE LAND) READY ---");
+  Serial.println("--- MOSAM v2.2 OHP AUTO-DETECT READY ---");
   Serial.println("INFO: Press Button within 30s for DEMO, later for PROG MODE.");
 }
 
@@ -239,10 +243,25 @@ void loop() {
     }
   }
 
+  // --- OHP AUTO DETECT LOGIK ---
+  // Wir prüfen Pin 23. Wenn LOW (GND), ist OHP da.
   unsigned long now = millis();
-  if (now - lastOHPUpdate >= OHP_REFRESH_RATE && !demoModeActive && !calMode) {
-     lastOHPUpdate = now;
-     updateOHPInputs();
+  
+  // Nur lesen, wenn nicht Demo und nicht CalMode
+  if (!demoModeActive && !calMode) {
+      // Prüfen ob OHP angeschlossen ist (Brücke Pin 23 -> GND)
+      if (digitalRead(pinOHP_Detect) == LOW) {
+          ohpConnected = true;
+          // Nur alle X ms updaten, um Bus nicht zu fluten
+          if (now - lastOHPUpdate >= OHP_REFRESH_RATE) {
+              lastOHPUpdate = now;
+              updateOHPInputs();
+          }
+      } else {
+          ohpConnected = false; 
+          // Wenn OHP nicht da, machen wir NICHTS mit den wDataRefs.
+          // Dadurch bleibt die Kontrolle bei X-Plane (Maus).
+      }
   }
 
   if (Serial.available() > 0) {
@@ -252,8 +271,11 @@ void loop() {
     else if (cmd == "engstop") { run_eng = 0; Serial.println(">> ENGINES STOPPED"); }
     else if (cmd == "night") { brightnessScale = 0.3; Serial.println(">> MODE: NIGHT (30%)"); }
     else if (cmd == "day") { brightnessScale = 1.0; Serial.println(">> MODE: DAY (100%)"); }
+    else if (cmd == "status") {
+        Serial.print("OHP CONNECTED: "); Serial.println(ohpConnected ? "YES" : "NO");
+    }
     
-    // Calibration
+    // Calibration (Code gekürzt, ist identisch zu vorher)
     else if (cmd.startsWith("cal_left")) {
       calMode = true; manualRollOffset = cmd.substring(9).toInt(); manualPitchOffset = 0; 
       calTargetBank = -LIMIT_BANK; calTargetPitch = 0.0; 
@@ -389,7 +411,8 @@ void loop() {
         if (!calMode && FlightSim.isEnabled()) {
             Serial.print("SYS: P="); Serial.print((int)xPitch);
             Serial.print(" R="); Serial.print((int)xBank);
-            Serial.print(" | Motion F: "); Serial.println(supFTarget);
+            Serial.print(" | Motion F: "); Serial.print(supFTarget);
+            Serial.print(" | OHP: "); Serial.println(ohpConnected ? "ON" : "OFF");
         }
     }
   }
@@ -444,7 +467,6 @@ void updateOHPInputs() {
   else if (digitalRead(sw_Nose_Taxi) == LOW) wNose = 1;
   else wNose = 0;
 
-  // ÄNDERUNG: SINGLE MASTER SWITCH LANDING
   if (digitalRead(sw_Landing_Master) == LOW) wLanding = 1; else wLanding = 0;
 
   if (digitalRead(sw_RwyTurnoff) == LOW) wRwyTurn = 1; else wRwyTurn = 0;
