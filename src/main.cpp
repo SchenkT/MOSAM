@@ -277,7 +277,8 @@ void loop() {
     else if (cmd == "night") { brightnessScale = 0.3; Serial.println(">> MODE: NIGHT (30%)"); }
     else if (cmd == "day") { brightnessScale = 1.0; Serial.println(">> MODE: DAY (100%)"); }
     else if (cmd == "status") {
-        Serial.print("OHP CONNECTED: "); Serial.println(ohpConnected ? "YES" : "NO");
+        Serial.print("OHP STATUS: "); Serial.println(ohpConnected ? "CONNECTED (LOW)" : "DISCONNECTED (HIGH)");
+        Serial.print("RAW PIN 23 READ: "); Serial.println(digitalRead(pinOHP_Detect));
     }
     
     // Calibration
