@@ -1,0 +1,38 @@
+Aus Schaltpult:
+
+  beacon        = XPlaneRef("sim/cockpit2/switches/beacon_on");
+  strobe        = XPlaneRef("ckpt/oh/strobeLight/anim");
+  nose          = XPlaneRef("ckpt/oh/taxiLight/anim");
+  seatbelt      = XPlaneRef("AirbusFBW/SeatBeltSignsOn");
+  landinglights = XPlaneRef("sim/cockpit2/switches/landing_lights_switch");
+  runway        = XPlaneRef("ckpt/oh/rwyTurnOff/anim");
+  
+  flaps         = XPlaneRef("ckpt/flapMain/anim");
+  gear          = XPlaneRef("AirbusFBW/GearLever");
+  speedbrake    = XPlaneRef("sim/cockpit2/controls/speedbrake_ratio");
+  speedbrake    = XPlaneRef("ckpt/speedbrake/anim");
+  speedbrake_up  = XPlaneRef("ckpt/speedbrakeUp/anim");
+  groundspeed   = XPlaneRef("sim/flightmodel/position/groundspeed");
+  com1_active   = XPlaneRef("sim/cockpit2/radios/actuators/com1_left_frequency_hz_833");
+  com2_active   = XPlaneRef("sim/cockpit2/radios/actuators/com2_left_frequency_hz_833");
+  com1_left_khz = XPlaneRef("sim/cockpit2/radios/actuators/com1_frequency_khz");
+  com1_left_mhz = XPlaneRef("sim/cockpit2/radios/actuators/com1_frequency_Mhz");
+  com2_left_khz = XPlaneRef("sim/cockpit2/radios/actuators/com2_frequency_khz");
+  com2_left_mhz = XPlaneRef("sim/cockpit2/radios/actuators/com2_frequency_Mhz");
+  com1_stby_khz = XPlaneRef("sim/cockpit2/radios/actuators/com1_standby_frequency_khz");
+  com1_stby_mhz = XPlaneRef("sim/cockpit2/radios/actuators/com1_standby_frequency_Mhz");
+  com2_stby_khz = XPlaneRef("sim/cockpit2/radios/actuators/com2_standby_frequency_khz");
+  com2_stby_mhz = XPlaneRef("sim/cockpit2/radios/actuators/com2_standby_frequency_Mhz");
+  //hdg           =XPlaneRef("ckpt/fcu/hading/anim");
+  hdg             =XPlaneRef("sim/cockpit/autopilot/heading_mag");
+  hdg_managed   =XPlaneRef("AirbusFBW/HDGmanaged");
+  hdg_dashed    =XPlaneRef("AirbusFBW/HDGdashed");
+  spd           =XPlaneRef("sim/cockpit/autopilot/airspeed");
+  spd_dashed    =XPlaneRef("AirbusFBW/SPDdashed");
+  spd_managed   =XPlaneRef("AirbusFBW/SPDmanaged");
+  alt           =XPlaneRef("sim/cockpit/autopilot/altitude");
+  alt_managed   =XPlaneRef("AirbusFBW/ALTmanaged");
+  alt_step      =XPlaneRef("ckpt/fcu/altitudeStep/anim");
+  vs            =XPlaneRef("sim/cockpit/autopilot/vertical_velocity");
+  vs_armed      =XPlaneRef("AirbusFBW/APVerticalArmed");
+  vs_dashed     =XPlaneRef("AirbusFBW/VSdashed");
