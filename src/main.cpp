@@ -105,13 +105,29 @@ void updateHydraulics(); void updateOHPInputs(); void waitAndAnimate(int waitTim
 void setup() {
   Serial.begin(9600);
   
+/* 
+  beacon        = XPlaneRef("sim/cockpit2/switches/beacon_on");
+  strobe        = XPlaneRef("ckpt/oh/strobeLight/anim");
+  nose          = XPlaneRef("ckpt/oh/taxiLight/anim");
+  seatbelt      = XPlaneRef("AirbusFBW/SeatBeltSignsOn");
+  landinglights = XPlaneRef("sim/cockpit2/switches/landing_lights_switch");
+  runway        = XPlaneRef("ckpt/oh/rwyTurnOff/anim");
+*/
+
+
+
+
   // --- READ REFS ---
   xNavLight = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
-  xBeaconLight = XPlaneRef("sim/cockpit2/switches/beacon_on");
-  xStrobeLight = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); 
-  xLandingLight = XPlaneRef("sim/cockpit2/switches/landing_lights_on");
-  xNoseSwitch = XPlaneRef("ckpt/oh/taxiLight/anim");    
-  xRwyTurnSwitch = XPlaneRef("ckpt/oh/rwyTurnOff/anim");   
+  xBeaconLight = XPlaneRef("sim/cockpit2/switches/beacon_on");//wie in Pult
+  xStrobeLight = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); //anders aber funktioniert
+
+  //xLandingLight = XPlaneRef("sim/cockpit2/switches/landing_lights_on"); hat nicht funkt
+  xLandingLight = XPlaneRef("sim/cockpit2/switches/landing_lights_switch");//aus Pult
+
+  xNoseSwitch = XPlaneRef("ckpt/oh/taxiLight/anim");    // wie Pult
+  xRwyTurnSwitch = XPlaneRef("ckpt/oh/rwyTurnOff/anim");   //wie Pult
+  
   xGearHandle = XPlaneRef("sim/cockpit2/controls/gear_handle_down");
   xOnGround = XPlaneRef("sim/flightmodel/failures/onground_any"); 
   xBank = XPlaneRef("sim/flightmodel/position/phi");    
