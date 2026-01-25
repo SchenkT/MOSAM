@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v2.13 - FINAL (Seatbelt Commands + Dome Fix)
+//      MOSAM v3.1 - STATUS UPDATE (Soll-Werte Anzeige)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -38,13 +38,6 @@ const int sw_Pack1 = 40; const int sw_Pack2 = 32;
 unsigned long lastOHPUpdate = 0; const int OHP_REFRESH_RATE = 150; bool ohpConnected = false; 
 bool debugMode = false; unsigned long lastDebugTime = 0;
 
-// Hilfsvariable für Seatbelt Command-Logik (damit wir nicht spammen)
-int lastSeatbeltState = -1; 
-
-// --- COMMANDS (NEU) ---
-FlightSimCommand cmdSeatbeltOn;
-FlightSimCommand cmdSeatbeltOff;
-
 // --- DATAREFS (WRITE) ---
 FlightSimInteger wBeacon;
 FlightSimInteger wStrobe; 
@@ -54,7 +47,7 @@ FlightSimInteger wLandingL;
 FlightSimInteger wLandingR;    
 FlightSimInteger wLandingNose; 
 FlightSimInteger wRwyTurn;
-// wSeatbelt entfernt -> Jetzt Commands
+FlightSimInteger wSeatbelt;    
 FlightSimInteger wDomeSwitch;  
 FlightSimFloat   wDomeLightVal;
 FlightSimInteger wWiper; 
@@ -105,29 +98,13 @@ void updateHydraulics(); void updateOHPInputs(); void waitAndAnimate(int waitTim
 void setup() {
   Serial.begin(9600);
   
-/* 
-  beacon        = XPlaneRef("sim/cockpit2/switches/beacon_on");
-  strobe        = XPlaneRef("ckpt/oh/strobeLight/anim");
-  nose          = XPlaneRef("ckpt/oh/taxiLight/anim");
-  seatbelt      = XPlaneRef("AirbusFBW/SeatBeltSignsOn");
-  landinglights = XPlaneRef("sim/cockpit2/switches/landing_lights_switch");
-  runway        = XPlaneRef("ckpt/oh/rwyTurnOff/anim");
-*/
-
-
-
-
   // --- READ REFS ---
   xNavLight = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
-  xBeaconLight = XPlaneRef("sim/cockpit2/switches/beacon_on");//wie in Pult
-  xStrobeLight = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); //anders aber funktioniert
-
-  //xLandingLight = XPlaneRef("sim/cockpit2/switches/landing_lights_on"); hat nicht funkt
-  xLandingLight = XPlaneRef("sim/cockpit2/switches/landing_lights_switch");//aus Pult
-
-  xNoseSwitch = XPlaneRef("ckpt/oh/taxiLight/anim");    // wie Pult
-  xRwyTurnSwitch = XPlaneRef("ckpt/oh/rwyTurnOff/anim");   //wie Pult
-  
+  xBeaconLight = XPlaneRef("sim/cockpit2/switches/beacon_on");
+  xStrobeLight = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); 
+  xLandingLight = XPlaneRef("sim/cockpit2/switches/landing_lights_on");
+  xNoseSwitch = XPlaneRef("ckpt/oh/taxiLight/anim");    
+  xRwyTurnSwitch = XPlaneRef("ckpt/oh/rwyTurnOff/anim");   
   xGearHandle = XPlaneRef("sim/cockpit2/controls/gear_handle_down");
   xOnGround = XPlaneRef("sim/flightmodel/failures/onground_any"); 
   xBank = XPlaneRef("sim/flightmodel/position/phi");    
@@ -144,15 +121,9 @@ void setup() {
   wLandingR  = XPlaneRef("AirbusFBW/OH/Lights/LandingR");
   wLandingNose = XPlaneRef("AirbusFBW/OH/Lights/Nose"); 
   wRwyTurn   = XPlaneRef("ckpt/oh/rwyTurnOff/anim");
-  
-  // SEATBELTS = COMMANDS
-  cmdSeatbeltOn  = XPlaneRef("toliss_airbus/lightcommands/FSBSignOn");
-  cmdSeatbeltOff = XPlaneRef("toliss_airbus/lightcommands/FSBSignOff");
-  
-  // DOME REFS
+  wSeatbelt  = XPlaneRef("AirbusFBW/OH/Signs/SeatBelts"); 
   wDomeSwitch   = XPlaneRef("ckpt/oh/domeLight/anim"); 
   wDomeLightVal = XPlaneRef("sim/cockpit/electrical/cockpit_lights");
-
   wWiper     = XPlaneRef("sim/cockpit2/switches/wiper_speed"); 
   wCall      = XPlaneRef("AirbusFBW/OH/CallMech"); 
   wIceWing   = XPlaneRef("sim/cockpit2/ice/ice_inlet_heat_on_per_engine[0]"); 
@@ -186,7 +157,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v2.13 SEATBELT COMMANDS ---");
+  Serial.println("--- MOSAM v3.1 STATUS UPDATE ---");
 }
 
 void loop() {
@@ -208,7 +179,41 @@ void loop() {
     if (cmd.equalsIgnoreCase("debug")) debugMode = true; else if (cmd.equalsIgnoreCase("debugstop")) debugMode = false;
     else if (cmd.startsWith("cal_left")) { calMode = true; manualRollOffset = cmd.substring(9).toInt(); calTargetBank = -40; }
     else if (cmd == "cal_off") { calMode = false; manualRollOffset = 0; }
+    
+    // --- STATUS BERICHT ---
+    else if (cmd == "status") {
+        Serial.println("\n=== MOSAM v3.1 STATUS REPORT ===");
+        
+        Serial.println("[OHP RAW INPUTS] (LO=ON, HI=OFF)");
+        Serial.print("  LIGHTS: Bcn:"); Serial.print(digitalRead(sw_Beacon)==LOW);
+        Serial.print(" Nav:"); Serial.print(digitalRead(sw_Nav_Master)==LOW);
+        Serial.print(" Land:"); Serial.print(digitalRead(sw_Landing_Master)==LOW);
+        Serial.print(" Dome:"); Serial.print(digitalRead(sw_Dome_Dim)==LOW);
+        Serial.print(" Call:"); Serial.print(digitalRead(sw_Call_Btn)==LOW);
+        Serial.print(" APU:"); Serial.println(digitalRead(sw_APU_Start)==LOW);
+
+        // --- HIER IST DEIN NEUER TEIL ---
+        Serial.println("[LOGIC OUT (SOLL)]");
+        Serial.print("  LANDING(L):"); Serial.print((int)wLandingL);
+        Serial.print(" | BEACON:"); Serial.print((int)wBeacon);
+        Serial.print(" | DOME(Sw/Val):"); Serial.print((int)wDomeSwitch); Serial.print("/"); Serial.print((float)wDomeLightVal);
+        Serial.print(" | CALL:"); Serial.print((int)wCall);
+        Serial.print(" | APU_START:"); Serial.println((int)wAPUStart);
+        Serial.println(); // Leerzeile
+        // --------------------------------
+
+        Serial.println("[SIMULATOR DATA]");
+        if (FlightSim.isEnabled()) {
+            Serial.print("  PITCH:"); Serial.print((float)xPitch, 1);
+            Serial.print(" | BANK:"); Serial.println((float)xBank, 1);
+        } else {
+            Serial.println("  >> X-PLANE NOT RUNNING <<");
+        }
+        Serial.println("================================\n");
+    }
   }
+
+  // Loop Debug Output
   if (debugMode && (millis() - lastDebugTime > 1000)) {
       lastDebugTime = millis(); Serial.print("DBG > ");
       for (int i=14; i<=41; i++) { if (i!=33) { Serial.print(i); Serial.print(":"); Serial.print(digitalRead(i)==LOW?"L":"H"); Serial.print(" "); }} Serial.println();
@@ -245,31 +250,15 @@ void updateOHPInputs() {
   
   if (digitalRead(sw_Beacon) == LOW) wBeacon = 1; else wBeacon = 0;
   if (digitalRead(sw_Strobe_On) == LOW) wStrobe = 2; else wStrobe = 1;
-
   if (digitalRead(sw_Nav_Master) == LOW) wNav = 1; else wNav = 0; 
   if (digitalRead(sw_Landing_Master) == LOW) { wLandingL = 2; wLandingR = 2; wLandingNose = 2; } else { wLandingL = 0; wLandingR = 0; wLandingNose = 0; }
   
-  // --- SEATBELT COMMAND LOGIC (State Change Detection) ---
-  int currentSeatbeltState = digitalRead(sw_Seatbelts); // LOW=On, HIGH=Off
-  
-  // Nur wenn sich der Zustand geändert hat, senden wir den Befehl EINMAL
-  if (currentSeatbeltState != lastSeatbeltState) {
-      if (currentSeatbeltState == LOW) {
-          cmdSeatbeltOn.once();  // "SignOn"
-      } else {
-          cmdSeatbeltOff.once(); // "SignOff"
-      }
-      lastSeatbeltState = currentSeatbeltState; // Zustand merken
-  }
+  // SEATBELT ALS VARIABLE (0=OFF, 2=ON)
+  if (digitalRead(sw_Seatbelts) == LOW) wSeatbelt = 2; else wSeatbelt = 0;
   
   // DOME FIX
-  if (digitalRead(sw_Dome_Dim) == LOW) {
-      wDomeSwitch = 1;      
-      wDomeLightVal = 0.45; 
-  } else {
-      wDomeSwitch = 0;      
-      wDomeLightVal = 0.0;  
-  }
+  if (digitalRead(sw_Dome_Dim) == LOW) { wDomeSwitch = 1; wDomeLightVal = 0.45; } 
+  else { wDomeSwitch = 0; wDomeLightVal = 0.0; }
 
   if (digitalRead(sw_Call_Btn) == LOW) wCall = 1; else wCall = 0;
   if (digitalRead(sw_APU_Start) == LOW) wAPUStart = 1; else wAPUStart = 0;
