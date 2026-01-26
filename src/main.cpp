@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v5.3 - COMPILATION FIX (Variable Cleanup)
+//      MOSAM v5.5 - CALL BUTTON AS COMMAND
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -71,16 +71,16 @@ FlightSimInteger pan_Strobe; // Index 7
 FlightSimInteger pan_Dome;   // Index 8
 FlightSimInteger pan_Seat;   // Index 11
 
-// Systems (Specific ToLiss Refs)
+// Systems
 FlightSimInteger pan_Wiper;     
-FlightSimInteger pan_Call;      
+FlightSimCommand cmd_Call;      // NEU: Command statt Integer!
 FlightSimInteger pan_IceW;      
 FlightSimInteger pan_IceE1;     
 FlightSimInteger pan_IceE2;     
 FlightSimInteger pan_APUM;      
 FlightSimInteger pan_APUS;      
 FlightSimInteger pan_APUB;
-FlightSimInteger pan_XBleed;    // AirbusFBW/XBleedSwitch (0/1/2)
+FlightSimInteger pan_XBleed;    
 FlightSimInteger pan_HydElec;   
 FlightSimInteger pan_HydPTU;    
 FlightSimInteger pan_Pack1;     
@@ -123,7 +123,7 @@ void setup() {
   Serial.begin(9600);
   for(int i=0; i<50; i++) changeTimer[i] = 0;
 
-  // --- READ REFS (Standard Feedback) ---
+  // --- READ REFS ---
   mod_Nav     = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
   mod_Beacon  = XPlaneRef("sim/cockpit2/switches/beacon_on");
   mod_Strobe  = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); 
@@ -141,8 +141,7 @@ void setup() {
   xEng1N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
   xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
 
-  // --- WRITE REFS (TOLISS SPECIFIC) ---
-  // Lights Array
+  // --- WRITE REFS ---
   pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); 
   pan_Nav       = XPlaneRef("AirbusFBW/OHPLightSwitches[2]"); 
   pan_Nose      = XPlaneRef("AirbusFBW/OHPLightSwitches[3]"); 
@@ -155,30 +154,23 @@ void setup() {
 
   // Systems
   pan_Wiper     = XPlaneRef("AirbusFBW/LeftWiperSwitch"); 
-  pan_Call      = XPlaneRef("AirbusFBW/purser/fwd"); 
   
-  // Hyd Array
-  pan_HydElec   = XPlaneRef("AirbusFBW/HydOHPArray[3]"); // Elec Pump
-  pan_HydPTU    = XPlaneRef("AirbusFBW/HydOHPArray[4]"); // PTU
+  // COMMAND
+  cmd_Call      = "AirbusFBW/purser/fwd"; // Zuweisung als String für Command
   
-  // Packs
+  // Hyd/Packs/APU
+  pan_HydElec   = XPlaneRef("AirbusFBW/HydOHPArray[3]"); 
+  pan_HydPTU    = XPlaneRef("AirbusFBW/HydOHPArray[4]"); 
   pan_Pack1     = XPlaneRef("AirbusFBW/Pack1Switch");
   pan_Pack2     = XPlaneRef("AirbusFBW/Pack2Switch");
-  
-  // APU
-  pan_APUM      = XPlaneRef("sim/cockpit2/electrical/APU_master_switch");
+  pan_APUM      = XPlaneRef("AirbusFBW/APUMaster"); 
   pan_APUS      = XPlaneRef("AirbusFBW/APUStarter"); 
   
-  // Ice
   pan_IceW      = XPlaneRef("AirbusFBW/WAISwitch"); 
   pan_IceE1     = XPlaneRef("AirbusFBW/ENG1AISwitch");
   pan_IceE2     = XPlaneRef("AirbusFBW/ENG2AISwitch");
-  
-  // Bleed
   pan_APUB      = XPlaneRef("sim/cockpit2/bleedair/apu_bleed_on");
-  pan_XBleed    = XPlaneRef("AirbusFBW/XBleedSwitch"); // 0/1/2
-  
-  // Entfernt: pan_Elec = ... (Fehlerquelle)
+  pan_XBleed    = XPlaneRef("AirbusFBW/XBleedSwitch"); 
 
   // PINS
   pinMode(pinNoseLight, OUTPUT); pinMode(pinWingStrobes, OUTPUT); pinMode(pinTailCombined, OUTPUT); 
@@ -196,7 +188,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v5.3 FIXED ---");
+  Serial.println("--- MOSAM v5.5 CALL COMMAND ---");
 }
 
 void loop() {
@@ -281,10 +273,10 @@ void updatePanelInputs() {
 
   // --- SYSTEMS ---
   
-  // P14 Call
+  // P14 Call (COMMAND TRIGGER)
   val = (digitalRead(sw_Call_Btn) == LOW);
   if (val != last_Call) { 
-      if (val == 1) pan_Call = 1; 
+      if (val == 1) cmd_Call.once(); // FIRE COMMAND ONCE
       last_Call = val; 
       changeTimer[sw_Call_Btn] = millis(); 
   }
@@ -312,7 +304,7 @@ void updatePanelInputs() {
   val = (digitalRead(sw_APU_Master) == LOW);
   if (val != last_APUM) { pan_APUM = val; last_APUM = val; changeTimer[sw_APU_Master] = millis(); }
 
-  // P18 APU S
+  // P18 APU S (Taster Ref)
   val = (digitalRead(sw_APU_Start) == LOW);
   if (val != last_APUS) { 
       if (val == 1) pan_APUS = 1; 
@@ -379,16 +371,21 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
     String pS = (switchVal == 0) ? "ON " : "OFF"; 
     bool blocked = (millis() - changeTimer[pin] < BLOCK_TIME);
     String chg = blocked ? " + " : " - "; 
+    
+    // Custom Text für Command
+    String sVal = String(simVal);
+    if (name.equals("CALL")) sVal = (switchVal == 0) ? "TRIG" : " - ";
+
     Serial.print("P"); Serial.print(sub); Serial.print("/T"); Serial.print(pin); 
     Serial.print(" "); Serial.print(name); 
     while(name.length() < 9) { Serial.print(" "); name += " "; } 
     Serial.print("| "); Serial.print(pS); 
     Serial.print(" |  "); Serial.print(chg); 
-    Serial.print("  | "); Serial.println(simVal);
+    Serial.print("  | "); Serial.println(sVal);
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v5.3) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v5.5) ---"); 
     Serial.print("PANEL: "); Serial.println(ohpConnected ? "CONNECTED" : "DISCONNECTED");
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
     
