@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v4.7 - NAV LIGHT ARRAY TEST
+//      MOSAM v4.8 - THE ARRAY SOLUTION (OHPLightSwitches)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -58,19 +58,25 @@ int last_APUM = -1; int last_APUS = -1; int last_APUB = -1;
 int last_XBleed = -1; int last_Elec = -1; int last_PTU = -1;
 int last_Pack1 = -1; int last_Pack2 = -1;
 
-// --- WRITE REFS ---
-FlightSimInteger pan_Beacon; FlightSimInteger pan_Strobe; FlightSimInteger pan_Nav;         
-FlightSimInteger pan_Nose; 
-FlightSimInteger pan_LandL; FlightSimInteger pan_LandR; FlightSimInteger pan_LandN;
-FlightSimInteger pan_Rwy; FlightSimInteger pan_Seat;    
-FlightSimInteger pan_Dome; 
+// --- WRITE REFS (ARRAY INDICES) ---
+FlightSimInteger pan_Beacon; // Index 0
+FlightSimInteger pan_Nav;    // Index 2
+FlightSimInteger pan_Nose;   // Index 3
+FlightSimInteger pan_LandL;  // Index 4
+FlightSimInteger pan_LandR;  // Index 5
+FlightSimInteger pan_Rwy;    // Index 6
+FlightSimInteger pan_Strobe; // Index 7
+FlightSimInteger pan_Dome;   // Index 8
+FlightSimInteger pan_Seat;   // Index 11
+
+// --- SYSTEM REFS (NOCH ALTE LOGIK BIS WIR INDIZES HABEN) ---
 FlightSimInteger pan_Wiper; FlightSimInteger pan_Call;        
 FlightSimInteger pan_IceW; FlightSimInteger pan_IceE1; FlightSimInteger pan_IceE2;
 FlightSimInteger pan_APUM; FlightSimInteger pan_APUS; FlightSimInteger pan_APUB;
 FlightSimInteger pan_XBleed; FlightSimInteger pan_Elec; FlightSimInteger pan_PTU;
 FlightSimInteger pan_Pack1; FlightSimInteger pan_Pack2;
 
-// --- READ REFS ---
+// --- READ REFS (SIM FEEDBACK) ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
 FlightSimInteger mod_Land; FlightSimInteger mod_Taxi; FlightSimInteger mod_Rwy; 
 FlightSimInteger mod_Dome; 
@@ -125,21 +131,18 @@ void setup() {
   xEng1N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
   xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
 
-  // WRITE REFS
-  pan_Beacon    = XPlaneRef("sim/cockpit2/switches/beacon_on");      
-  pan_Strobe    = XPlaneRef("sim/cockpit2/switches/strobe_lights_on");      
-  
-  // *** NAV EXPERIMENT ***
-  // Array Index 2 (3. Position)
-  pan_Nav       = XPlaneRef("AirbusFBW/OHPLightSwitches[2]");  
-  
-  pan_Nose      = XPlaneRef("sim/cockpit2/switches/taxi_light_on");        
-  pan_LandL     = XPlaneRef("sim/cockpit2/switches/landing_lights_switch[0]");    
-  pan_LandR     = XPlaneRef("sim/cockpit2/switches/landing_lights_switch[1]");
-  pan_LandN     = XPlaneRef("sim/cockpit2/switches/landing_lights_switch[2]");
-  pan_Rwy       = XPlaneRef("sim/cockpit2/switches/runway_turnoff_lights_on");     
-  pan_Seat      = XPlaneRef("sim/cockpit2/switches/fasten_seat_belts");    
-  pan_Dome      = XPlaneRef("ckpt/oh/domeLight/anim"); 
+  // --- WRITE REFS (ARRAY INDICES) ---
+  pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); // Beacon
+  pan_Nav       = XPlaneRef("AirbusFBW/OHPLightSwitches[2]"); // Nav
+  pan_Nose      = XPlaneRef("AirbusFBW/OHPLightSwitches[3]"); // Nose
+  pan_LandL     = XPlaneRef("AirbusFBW/OHPLightSwitches[4]"); // Land L
+  pan_LandR     = XPlaneRef("AirbusFBW/OHPLightSwitches[5]"); // Land R
+  pan_Rwy       = XPlaneRef("AirbusFBW/OHPLightSwitches[6]"); // Rwy
+  pan_Strobe    = XPlaneRef("AirbusFBW/OHPLightSwitches[7]"); // Strobe
+  pan_Dome      = XPlaneRef("AirbusFBW/OHPLightSwitches[8]"); // Dome
+  pan_Seat      = XPlaneRef("AirbusFBW/OHPLightSwitches[11]"); // Seatbelts
+
+  // --- SYSTEM REFS (OLD) ---
   pan_Wiper     = XPlaneRef("sim/cockpit2/switches/wiper_speed"); 
   pan_Call      = XPlaneRef("AirbusFBW/OH/CallMech"); 
   pan_IceW      = XPlaneRef("sim/cockpit2/ice/ice_inlet_heat_on_per_engine[0]"); 
@@ -170,7 +173,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v4.7 NAV ARRAY TEST ---");
+  Serial.println("--- MOSAM v4.8 ARRAY FIX ---");
 }
 
 void loop() {
@@ -199,57 +202,58 @@ void loop() {
 }
 
 // =========================================================
-// LOGIC: UPDATE PANEL 
+// LOGIC: UPDATE PANEL (ARRAY MAPPING)
 // =========================================================
 void updatePanelInputs() {
   int val; 
 
-  // P03 Beacon
+  // P03 Beacon (Idx 0) -> LO=1, HI=0
   val = (digitalRead(sw_Beacon) == LOW);
   if (val != last_Beacon) { pan_Beacon = val; last_Beacon = val; changeTimer[sw_Beacon] = millis(); }
 
-  // P04 Strobe
-  val = (digitalRead(sw_Strobe_On) == LOW);
+  // P04 Strobe (Idx 7) -> LO=2 (On), HI=1 (Auto)
+  val = (digitalRead(sw_Strobe_On) == LOW) ? 2 : 1; 
   if (val != last_Strobe) { pan_Strobe = val; last_Strobe = val; changeTimer[sw_Strobe_On] = millis(); }
 
-  // --- EXPERIMENT NAV ---
-  val = (digitalRead(sw_Nav_Master) == LOW); // 1 if On
-  if (val != last_Nav) { 
-      // Wir senden 2 wenn an, 0 wenn aus (ToLiss Logic: 0=Off, 1=1, 2=2)
-      pan_Nav = (val == 1) ? 2 : 0; 
-      last_Nav = val; 
-      changeTimer[sw_Nav_Master] = millis(); 
-  }
+  // P05 Nav (Idx 2) -> LO=2, HI=0
+  val = (digitalRead(sw_Nav_Master) == LOW) ? 2 : 0;
+  if (val != last_Nav) { pan_Nav = val; last_Nav = val; changeTimer[sw_Nav_Master] = millis(); }
 
-  // P06/07 Nose
+  // P06/07 Nose (Idx 3) -> TO=2, Taxi=1, Off=0
   int noseState = 0; 
   if (digitalRead(sw_Nose_TO) == LOW) noseState = 2;
   else if (digitalRead(sw_Nose_Taxi) == HIGH) noseState = 1; 
   if (noseState != last_Nose) { 
-      pan_Nose = (noseState > 0) ? 1 : 0; 
+      pan_Nose = noseState; 
       last_Nose = noseState; 
       changeTimer[sw_Nose_TO] = millis(); 
   }
 
-  // P08 Rwy
+  // P08 Rwy (Idx 6) -> LO=1, HI=0
   val = (digitalRead(sw_RwyTurnoff) == LOW);
   if (val != last_Rwy) { pan_Rwy = val; last_Rwy = val; changeTimer[sw_RwyTurnoff] = millis(); }
 
-  // P09 Landing
-  val = (digitalRead(sw_Landing_Master) == LOW);
+  // P09 Landing (Idx 4+5) -> LO=2 (On), HI=0 (Off/Retract)
+  val = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0;
   if (val != last_Land) { 
-      pan_LandL = val; pan_LandR = val; pan_LandN = val;
+      pan_LandL = val; pan_LandR = val; 
       last_Land = val; 
       changeTimer[sw_Landing_Master] = millis();
   }
 
-  // P10 Seatbelt
+  // P10 Seatbelt (Idx 11) -> LO=1, HI=0
   val = (digitalRead(sw_Seatbelts) == LOW);
   if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
 
-  // P11 Dome
+  // P11 Dome (Idx 8) -> LO=1 (Dim), HI=0 (Off)
   val = (digitalRead(sw_Dome_Dim) == LOW);
   if (val != last_Dome) { pan_Dome = val; last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); }
+
+  // --- SYSTEM SWITCHES (STILL ON OLD LOGIC/REFS) ---
+  
+  // P14 Call
+  val = (digitalRead(sw_Call_Btn) == LOW);
+  if (val != last_Call) { pan_Call = val; last_Call = val; changeTimer[sw_Call_Btn] = millis(); }
 
   // P12/13 Wiper
   int wiperState = 0;
@@ -259,10 +263,6 @@ void updatePanelInputs() {
       last_WiperS = digitalRead(sw_Wiper_Slow); last_WiperF = digitalRead(sw_Wiper_Fast);
       changeTimer[sw_Wiper_Slow] = millis();
   }
-
-  // P14 Call
-  val = (digitalRead(sw_Call_Btn) == LOW);
-  if (val != last_Call) { pan_Call = val; last_Call = val; changeTimer[sw_Call_Btn] = millis(); }
 
   // P15/16 Ice
   val = (digitalRead(sw_Ice_Wing) == LOW);
@@ -307,7 +307,7 @@ void updateModelOutputs() {
       bool isStrobe = (mod_Strobe == 1); 
       bool isBeacon = (mod_Beacon == 1);
       bool isNav    = (mod_Nav == 1);
-      bool isLand   = (mod_Land == 1);
+      bool isLand   = (mod_LandingLight == 1);
       bool isTaxi   = (mod_Taxi == 1);
 
       if (xGearHandle == 1) { 
@@ -347,13 +347,11 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v4.7) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v4.8) ---"); 
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
     
     printRow("03", 18, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
     printRow("04", 16, "STROBE", digitalRead(sw_Strobe_On), last_Strobe, mod_Strobe);
-    
-    // NAV ROW (SPECIAL ATTENTION)
     printRow("05", 17, "NAV_ARR", digitalRead(sw_Nav_Master), last_Nav, mod_Nav);
     
     Serial.print("P06/07 NOSE (TX/TO)  | "); 
