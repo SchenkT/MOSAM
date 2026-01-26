@@ -156,7 +156,7 @@ void setup() {
   pan_Wiper     = XPlaneRef("AirbusFBW/LeftWiperSwitch"); 
   
   // COMMAND
-  cmd_Call      = "AirbusFBW/purser/fwd"; // Zuweisung als String für Command
+  cmd_Call      = XPlaneRef("AirbusFBW/purser/fwd"); // Zuweisung als String für Command
   
   // Hyd/Packs/APU
   pan_HydElec   = XPlaneRef("AirbusFBW/HydOHPArray[3]"); 
