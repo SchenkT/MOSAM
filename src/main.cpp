@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v5.2 - GOLD MASTER (FINAL)
+//      MOSAM v5.3 - COMPILATION FIX (Variable Cleanup)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -176,9 +176,9 @@ void setup() {
   
   // Bleed
   pan_APUB      = XPlaneRef("sim/cockpit2/bleedair/apu_bleed_on");
-  pan_XBleed    = XPlaneRef("AirbusFBW/XBleedSwitch"); // UPDATE V5.2: 0/1/2
+  pan_XBleed    = XPlaneRef("AirbusFBW/XBleedSwitch"); // 0/1/2
   
-  pan_Elec      = XPlaneRef("sim/cockpit2/hydraulics/actuators/electric_hydraulic_pump_on"); 
+  // Entfernt: pan_Elec = ... (Fehlerquelle)
 
   // PINS
   pinMode(pinNoseLight, OUTPUT); pinMode(pinWingStrobes, OUTPUT); pinMode(pinTailCombined, OUTPUT); 
@@ -196,7 +196,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v5.2 FINAL ---");
+  Serial.println("--- MOSAM v5.3 FIXED ---");
 }
 
 void loop() {
@@ -324,14 +324,9 @@ void updatePanelInputs() {
   val = (digitalRead(sw_APU_Bleed) == LOW);
   if (val != last_APUB) { pan_APUB = val; last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); }
 
-  // P20 XBleed (UPDATE V5.2: 0=Shut, 1=Auto, 2=Open)
-  // Switch Logic: LOW = OPEN (2), HIGH = AUTO (1)
-  int xbleedState = (digitalRead(sw_XBleed_Open) == LOW) ? 2 : 1; 
-  if (xbleedState != last_XBleed) { 
-      pan_XBleed = xbleedState; 
-      last_XBleed = xbleedState; 
-      changeTimer[sw_XBleed_Open] = millis(); 
-  }
+  // P20 XBleed
+  val = (digitalRead(sw_XBleed_Open) == LOW);
+  if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
 
   // P21 Elec
   val = (digitalRead(sw_ElecPump) == LOW); 
@@ -393,7 +388,7 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v5.2) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v5.3) ---"); 
     Serial.print("PANEL: "); Serial.println(ohpConnected ? "CONNECTED" : "DISCONNECTED");
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
     
