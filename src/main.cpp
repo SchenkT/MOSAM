@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v4.8 - THE ARRAY SOLUTION (OHPLightSwitches)
+//      MOSAM v5.2 - GOLD MASTER (FINAL)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -16,34 +16,35 @@ const int pinBeacon = 8; const int pinEng1 = 9; const int pinEng2 = 10;
 const int pinLanding = 11; const int pinSupLeft = 12; const int pinSupRight = 13; 
 const int pinSupFront = 41; const int pinProgButton = 33; 
 
-// --- PINS (INPUTS PANEL) ---
-const int pinOHP_Detect = 1;   
-const int sw_Beacon = 18;      
-const int sw_Strobe_On = 16;   
-const int sw_Nav_Master = 17;  
-const int sw_Nose_Taxi = 19;   
-const int sw_Nose_TO = 20;     
-const int sw_RwyTurnoff = 21;  
-const int sw_Landing_Master = 22; 
-const int sw_Seatbelts = 24;   
-const int sw_Dome_Dim = 25;    
-const int sw_Wiper_Slow = 27;  
-const int sw_Wiper_Fast = 28;  
-const int sw_Call_Btn = 29;    
-const int sw_Ice_Wing = 30;    
-const int sw_Ice_Eng_Comb = 31; 
-const int sw_APU_Master = 34;  
-const int sw_APU_Start = 35;   
-const int sw_APU_Bleed = 36;   
-const int sw_XBleed_Open = 37; 
-const int sw_ElecPump = 38;    
-const int sw_PTU_Off = 39;     
-const int sw_Pack1 = 40;       
-const int sw_Pack2 = 32;       
+// --- PINS (INPUTS PANEL - SUB-D MAPPING) ---
+const int pinOHP_Detect = 1;   // P01 (Detect)
+const int sw_Beacon = 18;      // P03
+const int sw_Strobe_On = 16;   // P04
+const int sw_Nav_Master = 17;  // P05
+const int sw_Nose_Taxi = 19;   // P06
+const int sw_Nose_TO = 20;     // P07
+const int sw_RwyTurnoff = 21;  // P08
+const int sw_Landing_Master = 22; // P09
+const int sw_Seatbelts = 24;   // P10
+const int sw_Dome_Dim = 25;    // P11
+const int sw_Wiper_Slow = 27;  // P12
+const int sw_Wiper_Fast = 28;  // P13
+const int sw_Call_Btn = 29;    // P14
+const int sw_Ice_Wing = 30;    // P15
+const int sw_Ice_Eng_Comb = 31; // P16
+const int sw_APU_Master = 34;  // P17
+const int sw_APU_Start = 35;   // P18
+const int sw_APU_Bleed = 36;   // P19
+const int sw_XBleed_Open = 37; // P20
+const int sw_ElecPump = 38;    // P21
+const int sw_PTU_Off = 39;     // P22
+const int sw_Pack1 = 40;       // P23
+const int sw_Pack2 = 32;       // P24
 
 // --- VARS ---
 unsigned long lastOHPUpdate = 0; const int OHP_REFRESH_RATE = 50; 
 bool debugMode = false; unsigned long lastDebugTime = 0;
+bool ohpConnected = false;
 
 // --- TIMERS ---
 unsigned long changeTimer[50]; 
@@ -58,7 +59,8 @@ int last_APUM = -1; int last_APUS = -1; int last_APUB = -1;
 int last_XBleed = -1; int last_Elec = -1; int last_PTU = -1;
 int last_Pack1 = -1; int last_Pack2 = -1;
 
-// --- WRITE REFS (ARRAY INDICES) ---
+// --- WRITE REFS (TO SIM) ---
+// Lights (Array)
 FlightSimInteger pan_Beacon; // Index 0
 FlightSimInteger pan_Nav;    // Index 2
 FlightSimInteger pan_Nose;   // Index 3
@@ -69,12 +71,20 @@ FlightSimInteger pan_Strobe; // Index 7
 FlightSimInteger pan_Dome;   // Index 8
 FlightSimInteger pan_Seat;   // Index 11
 
-// --- SYSTEM REFS (NOCH ALTE LOGIK BIS WIR INDIZES HABEN) ---
-FlightSimInteger pan_Wiper; FlightSimInteger pan_Call;        
-FlightSimInteger pan_IceW; FlightSimInteger pan_IceE1; FlightSimInteger pan_IceE2;
-FlightSimInteger pan_APUM; FlightSimInteger pan_APUS; FlightSimInteger pan_APUB;
-FlightSimInteger pan_XBleed; FlightSimInteger pan_Elec; FlightSimInteger pan_PTU;
-FlightSimInteger pan_Pack1; FlightSimInteger pan_Pack2;
+// Systems (Specific ToLiss Refs)
+FlightSimInteger pan_Wiper;     
+FlightSimInteger pan_Call;      
+FlightSimInteger pan_IceW;      
+FlightSimInteger pan_IceE1;     
+FlightSimInteger pan_IceE2;     
+FlightSimInteger pan_APUM;      
+FlightSimInteger pan_APUS;      
+FlightSimInteger pan_APUB;
+FlightSimInteger pan_XBleed;    // AirbusFBW/XBleedSwitch (0/1/2)
+FlightSimInteger pan_HydElec;   
+FlightSimInteger pan_HydPTU;    
+FlightSimInteger pan_Pack1;     
+FlightSimInteger pan_Pack2;     
 
 // --- READ REFS (SIM FEEDBACK) ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
@@ -113,7 +123,7 @@ void setup() {
   Serial.begin(9600);
   for(int i=0; i<50; i++) changeTimer[i] = 0;
 
-  // READ REFS
+  // --- READ REFS (Standard Feedback) ---
   mod_Nav     = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
   mod_Beacon  = XPlaneRef("sim/cockpit2/switches/beacon_on");
   mod_Strobe  = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); 
@@ -131,31 +141,44 @@ void setup() {
   xEng1N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
   xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
 
-  // --- WRITE REFS (ARRAY INDICES) ---
-  pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); // Beacon
-  pan_Nav       = XPlaneRef("AirbusFBW/OHPLightSwitches[2]"); // Nav
-  pan_Nose      = XPlaneRef("AirbusFBW/OHPLightSwitches[3]"); // Nose
-  pan_LandL     = XPlaneRef("AirbusFBW/OHPLightSwitches[4]"); // Land L
-  pan_LandR     = XPlaneRef("AirbusFBW/OHPLightSwitches[5]"); // Land R
-  pan_Rwy       = XPlaneRef("AirbusFBW/OHPLightSwitches[6]"); // Rwy
-  pan_Strobe    = XPlaneRef("AirbusFBW/OHPLightSwitches[7]"); // Strobe
-  pan_Dome      = XPlaneRef("AirbusFBW/OHPLightSwitches[8]"); // Dome
-  pan_Seat      = XPlaneRef("AirbusFBW/OHPLightSwitches[11]"); // Seatbelts
+  // --- WRITE REFS (TOLISS SPECIFIC) ---
+  // Lights Array
+  pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); 
+  pan_Nav       = XPlaneRef("AirbusFBW/OHPLightSwitches[2]"); 
+  pan_Nose      = XPlaneRef("AirbusFBW/OHPLightSwitches[3]"); 
+  pan_LandL     = XPlaneRef("AirbusFBW/OHPLightSwitches[4]"); 
+  pan_LandR     = XPlaneRef("AirbusFBW/OHPLightSwitches[5]"); 
+  pan_Rwy       = XPlaneRef("AirbusFBW/OHPLightSwitches[6]"); 
+  pan_Strobe    = XPlaneRef("AirbusFBW/OHPLightSwitches[7]"); 
+  pan_Dome      = XPlaneRef("AirbusFBW/OHPLightSwitches[8]"); 
+  pan_Seat      = XPlaneRef("AirbusFBW/OHPLightSwitches[11]"); 
 
-  // --- SYSTEM REFS (OLD) ---
-  pan_Wiper     = XPlaneRef("sim/cockpit2/switches/wiper_speed"); 
-  pan_Call      = XPlaneRef("AirbusFBW/OH/CallMech"); 
-  pan_IceW      = XPlaneRef("sim/cockpit2/ice/ice_inlet_heat_on_per_engine[0]"); 
-  pan_IceE1     = XPlaneRef("sim/cockpit2/ice/ice_inlet_heat_on_per_engine[0]");
-  pan_IceE2     = XPlaneRef("sim/cockpit2/ice/ice_inlet_heat_on_per_engine[1]");
+  // Systems
+  pan_Wiper     = XPlaneRef("AirbusFBW/LeftWiperSwitch"); 
+  pan_Call      = XPlaneRef("AirbusFBW/purser/fwd"); 
+  
+  // Hyd Array
+  pan_HydElec   = XPlaneRef("AirbusFBW/HydOHPArray[3]"); // Elec Pump
+  pan_HydPTU    = XPlaneRef("AirbusFBW/HydOHPArray[4]"); // PTU
+  
+  // Packs
+  pan_Pack1     = XPlaneRef("AirbusFBW/Pack1Switch");
+  pan_Pack2     = XPlaneRef("AirbusFBW/Pack2Switch");
+  
+  // APU
   pan_APUM      = XPlaneRef("sim/cockpit2/electrical/APU_master_switch");
-  pan_APUS      = XPlaneRef("sim/cockpit2/electrical/APU_starter_switch");
+  pan_APUS      = XPlaneRef("AirbusFBW/APUStarter"); 
+  
+  // Ice
+  pan_IceW      = XPlaneRef("AirbusFBW/WAISwitch"); 
+  pan_IceE1     = XPlaneRef("AirbusFBW/ENG1AISwitch");
+  pan_IceE2     = XPlaneRef("AirbusFBW/ENG2AISwitch");
+  
+  // Bleed
   pan_APUB      = XPlaneRef("sim/cockpit2/bleedair/apu_bleed_on");
-  pan_XBleed    = XPlaneRef("sim/cockpit2/bleedair/cross_tie_open"); 
-  pan_Elec      = XPlaneRef("sim/cockpit2/hydraulics/actuators/electric_hydraulic_pump_on");
-  pan_PTU       = XPlaneRef("sim/cockpit2/hydraulics/actuators/ptu_on");
-  pan_Pack1     = XPlaneRef("sim/cockpit2/bleedair/bleed_air_on[0]");
-  pan_Pack2     = XPlaneRef("sim/cockpit2/bleedair/bleed_air_on[1]");
+  pan_XBleed    = XPlaneRef("AirbusFBW/XBleedSwitch"); // UPDATE V5.2: 0/1/2
+  
+  pan_Elec      = XPlaneRef("sim/cockpit2/hydraulics/actuators/electric_hydraulic_pump_on"); 
 
   // PINS
   pinMode(pinNoseLight, OUTPUT); pinMode(pinWingStrobes, OUTPUT); pinMode(pinTailCombined, OUTPUT); 
@@ -173,7 +196,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v4.8 ARRAY FIX ---");
+  Serial.println("--- MOSAM v5.2 FINAL ---");
 }
 
 void loop() {
@@ -182,8 +205,15 @@ void loop() {
   if (digitalRead(pinProgButton) == LOW) { delay(50); if (digitalRead(pinProgButton) == LOW) { if (millis() < 30000 && !demoHasRun) runDemoSequence(); else { analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); Serial.println("PROG"); delay(100); asm("bkpt #251"); }}}
 
   unsigned long now = millis();
-  if (!demoModeActive && !calMode) {
-      if (now - lastOHPUpdate >= OHP_REFRESH_RATE) { lastOHPUpdate = now; updatePanelInputs(); }
+  
+  // 1. CHECK DETECT (OHP Connected?)
+  if (digitalRead(pinOHP_Detect) == LOW) {
+      ohpConnected = true;
+      if (!demoModeActive && !calMode) {
+          if (now - lastOHPUpdate >= OHP_REFRESH_RATE) { lastOHPUpdate = now; updatePanelInputs(); }
+      }
+  } else {
+      ohpConnected = false;
   }
 
   if (!demoModeActive) { updateModelOutputs(); }
@@ -202,24 +232,24 @@ void loop() {
 }
 
 // =========================================================
-// LOGIC: UPDATE PANEL (ARRAY MAPPING)
+// LOGIC: UPDATE PANEL (TOLISS LOGIC)
 // =========================================================
 void updatePanelInputs() {
   int val; 
 
-  // P03 Beacon (Idx 0) -> LO=1, HI=0
+  // P03 Beacon (Idx 0)
   val = (digitalRead(sw_Beacon) == LOW);
   if (val != last_Beacon) { pan_Beacon = val; last_Beacon = val; changeTimer[sw_Beacon] = millis(); }
 
-  // P04 Strobe (Idx 7) -> LO=2 (On), HI=1 (Auto)
+  // P04 Strobe (Idx 7) 
   val = (digitalRead(sw_Strobe_On) == LOW) ? 2 : 1; 
   if (val != last_Strobe) { pan_Strobe = val; last_Strobe = val; changeTimer[sw_Strobe_On] = millis(); }
 
-  // P05 Nav (Idx 2) -> LO=2, HI=0
+  // P05 Nav (Idx 2)
   val = (digitalRead(sw_Nav_Master) == LOW) ? 2 : 0;
   if (val != last_Nav) { pan_Nav = val; last_Nav = val; changeTimer[sw_Nav_Master] = millis(); }
 
-  // P06/07 Nose (Idx 3) -> TO=2, Taxi=1, Off=0
+  // P06/07 Nose (Idx 3)
   int noseState = 0; 
   if (digitalRead(sw_Nose_TO) == LOW) noseState = 2;
   else if (digitalRead(sw_Nose_Taxi) == HIGH) noseState = 1; 
@@ -229,11 +259,11 @@ void updatePanelInputs() {
       changeTimer[sw_Nose_TO] = millis(); 
   }
 
-  // P08 Rwy (Idx 6) -> LO=1, HI=0
+  // P08 Rwy (Idx 6)
   val = (digitalRead(sw_RwyTurnoff) == LOW);
   if (val != last_Rwy) { pan_Rwy = val; last_Rwy = val; changeTimer[sw_RwyTurnoff] = millis(); }
 
-  // P09 Landing (Idx 4+5) -> LO=2 (On), HI=0 (Off/Retract)
+  // P09 Landing (Idx 4+5)
   val = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0;
   if (val != last_Land) { 
       pan_LandL = val; pan_LandR = val; 
@@ -241,25 +271,29 @@ void updatePanelInputs() {
       changeTimer[sw_Landing_Master] = millis();
   }
 
-  // P10 Seatbelt (Idx 11) -> LO=1, HI=0
+  // P10 Seatbelt (Idx 11)
   val = (digitalRead(sw_Seatbelts) == LOW);
   if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
 
-  // P11 Dome (Idx 8) -> LO=1 (Dim), HI=0 (Off)
+  // P11 Dome (Idx 8)
   val = (digitalRead(sw_Dome_Dim) == LOW);
   if (val != last_Dome) { pan_Dome = val; last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); }
 
-  // --- SYSTEM SWITCHES (STILL ON OLD LOGIC/REFS) ---
+  // --- SYSTEMS ---
   
   // P14 Call
   val = (digitalRead(sw_Call_Btn) == LOW);
-  if (val != last_Call) { pan_Call = val; last_Call = val; changeTimer[sw_Call_Btn] = millis(); }
+  if (val != last_Call) { 
+      if (val == 1) pan_Call = 1; 
+      last_Call = val; 
+      changeTimer[sw_Call_Btn] = millis(); 
+  }
 
   // P12/13 Wiper
   int wiperState = 0;
   if (digitalRead(sw_Wiper_Fast) == LOW) wiperState = 2; else if (digitalRead(sw_Wiper_Slow) == LOW) wiperState = 1;
   if (digitalRead(sw_Wiper_Slow) != last_WiperS || digitalRead(sw_Wiper_Fast) != last_WiperF) {
-      pan_Wiper = (wiperState == 2) ? 35 : (wiperState == 1 ? 15 : 0);
+      pan_Wiper = wiperState; 
       last_WiperS = digitalRead(sw_Wiper_Slow); last_WiperF = digitalRead(sw_Wiper_Fast);
       changeTimer[sw_Wiper_Slow] = millis();
   }
@@ -268,7 +302,11 @@ void updatePanelInputs() {
   val = (digitalRead(sw_Ice_Wing) == LOW);
   if (val != last_IceW) { pan_IceW = val; last_IceW = val; changeTimer[sw_Ice_Wing] = millis(); }
   val = (digitalRead(sw_Ice_Eng_Comb) == LOW);
-  if (val != last_IceE) { pan_IceE1 = val; pan_IceE2 = val; last_IceE = val; changeTimer[sw_Ice_Eng_Comb] = millis(); }
+  if (val != last_IceE) { 
+      pan_IceE1 = val; pan_IceE2 = val; 
+      last_IceE = val; 
+      changeTimer[sw_Ice_Eng_Comb] = millis(); 
+  }
 
   // P17 APU M
   val = (digitalRead(sw_APU_Master) == LOW);
@@ -276,23 +314,32 @@ void updatePanelInputs() {
 
   // P18 APU S
   val = (digitalRead(sw_APU_Start) == LOW);
-  if (val != last_APUS) { pan_APUS = val; last_APUS = val; changeTimer[sw_APU_Start] = millis(); }
+  if (val != last_APUS) { 
+      if (val == 1) pan_APUS = 1; 
+      last_APUS = val; 
+      changeTimer[sw_APU_Start] = millis(); 
+  }
 
   // P19 APU B
   val = (digitalRead(sw_APU_Bleed) == LOW);
   if (val != last_APUB) { pan_APUB = val; last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); }
 
-  // P20 XBleed
-  val = (digitalRead(sw_XBleed_Open) == LOW);
-  if (val != last_XBleed) { pan_XBleed = val; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
+  // P20 XBleed (UPDATE V5.2: 0=Shut, 1=Auto, 2=Open)
+  // Switch Logic: LOW = OPEN (2), HIGH = AUTO (1)
+  int xbleedState = (digitalRead(sw_XBleed_Open) == LOW) ? 2 : 1; 
+  if (xbleedState != last_XBleed) { 
+      pan_XBleed = xbleedState; 
+      last_XBleed = xbleedState; 
+      changeTimer[sw_XBleed_Open] = millis(); 
+  }
 
   // P21 Elec
-  val = (digitalRead(sw_ElecPump) == LOW);
-  if (val != last_Elec) { pan_Elec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
+  val = (digitalRead(sw_ElecPump) == LOW); 
+  if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
 
   // P22 PTU
   val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1;
-  if (val != last_PTU) { pan_PTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
+  if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
 
   // P23/24 Packs
   val = (digitalRead(sw_Pack1) == LOW);
@@ -307,7 +354,7 @@ void updateModelOutputs() {
       bool isStrobe = (mod_Strobe == 1); 
       bool isBeacon = (mod_Beacon == 1);
       bool isNav    = (mod_Nav == 1);
-      bool isLand   = (mod_LandingLight == 1);
+      bool isLand   = (mod_Land == 1); 
       bool isTaxi   = (mod_Taxi == 1);
 
       if (xGearHandle == 1) { 
@@ -337,7 +384,6 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
     String pS = (switchVal == 0) ? "ON " : "OFF"; 
     bool blocked = (millis() - changeTimer[pin] < BLOCK_TIME);
     String chg = blocked ? " + " : " - "; 
-    
     Serial.print("P"); Serial.print(sub); Serial.print("/T"); Serial.print(pin); 
     Serial.print(" "); Serial.print(name); 
     while(name.length() < 9) { Serial.print(" "); name += " "; } 
@@ -347,12 +393,13 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v4.8) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v5.2) ---"); 
+    Serial.print("PANEL: "); Serial.println(ohpConnected ? "CONNECTED" : "DISCONNECTED");
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
     
     printRow("03", 18, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
     printRow("04", 16, "STROBE", digitalRead(sw_Strobe_On), last_Strobe, mod_Strobe);
-    printRow("05", 17, "NAV_ARR", digitalRead(sw_Nav_Master), last_Nav, mod_Nav);
+    printRow("05", 17, "NAV",    digitalRead(sw_Nav_Master), last_Nav, mod_Nav);
     
     Serial.print("P06/07 NOSE (TX/TO)  | "); 
     if (digitalRead(sw_Nose_TO)==LOW) Serial.print("TO "); 
