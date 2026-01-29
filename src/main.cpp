@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v6.0 - SERIAL COMMANDER & ENGINE FIX
+//      MOSAM v6.1 - SERVO LINK RESTORED
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -59,18 +59,13 @@ int last_APUM = -1; int last_APUS = -1; int last_APUB = -1;
 int last_XBleed = -1; int last_Elec = -1; int last_PTU = -1;
 int last_Pack1 = -1; int last_Pack2 = -1;
 
-// --- WRITE REFS (TO SIM) ---
-FlightSimInteger pan_Beacon; // Index 0
-FlightSimInteger pan_Nav;    // Index 2
-FlightSimInteger pan_Nose;   // Index 3
-FlightSimInteger pan_LandL;  // Index 4
-FlightSimInteger pan_LandR;  // Index 5
-FlightSimInteger pan_Rwy;    // Index 6
-FlightSimInteger pan_Strobe; // Index 7
-FlightSimInteger pan_Dome;   // Index 8
-FlightSimInteger pan_Seat;   // Index 11
+// --- WRITE REFS ---
+FlightSimInteger pan_Beacon; FlightSimInteger pan_Nav;    
+FlightSimInteger pan_Nose;   FlightSimInteger pan_LandL;  
+FlightSimInteger pan_LandR;  FlightSimInteger pan_Rwy;    
+FlightSimInteger pan_Strobe; FlightSimInteger pan_Dome;   
+FlightSimInteger pan_Seat;   
 
-// Systems
 FlightSimInteger pan_Wiper;     
 FlightSimCommand cmd_Call;      
 FlightSimInteger pan_IceW;      
@@ -85,7 +80,7 @@ FlightSimInteger pan_HydPTU;
 FlightSimInteger pan_Pack1;     
 FlightSimInteger pan_Pack2;     
 
-// --- READ REFS (SIM FEEDBACK) ---
+// --- READ REFS ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
 FlightSimInteger mod_Land; FlightSimInteger mod_Taxi; FlightSimInteger mod_Rwy; 
 FlightSimInteger mod_Dome; 
@@ -97,20 +92,22 @@ FlightSimFloat xEng1N1; FlightSimFloat xEng2N1;
 
 // --- INTERNALS ---
 float noseCurrent = 5; int noseTarget = 5; float mainCurrent = 5; int mainTarget = 5;
-float supLCurrent = 0; int supLTarget = 0; float supRCurrent = 0; int supRTarget = 0; float supFCurrent = 0; int supFTarget = 0;
-unsigned long lastMoveTime = 0; 
-int eng1TargetPWM = 0; int eng2TargetPWM = 0;
-unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; 
-int run_eng = 0; // DEFAULT 0 (OFF)
-float brightnessScale = 1.0; 
+float supLCurrent = 50; int supLTarget = 50; 
+float supRCurrent = 50; int supRTarget = 50; 
+float supFCurrent = 50; int supFTarget = 50;
+
+unsigned long lastMoveTime = 0; int eng1TargetPWM = 0; int eng2TargetPWM = 0;
+unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; int run_eng = 0; float brightnessScale = 1.0; 
 bool calMode = false; float calTargetBank = 0; float calTargetPitch = 0; int manualRollOffset = 0; int manualPitchOffset = 0;    
 bool demoHasRun = false; bool demoModeActive = false; int demoNoseLightVal = 0; 
 
 // --- CONSTANTS ---
-const int REFRESH_RATE=10; const float SPEED_GEAR=0.05; const float SPEED_MOTION=0.2; 
+const int REFRESH_RATE=10; const float SPEED_GEAR=0.2; const float SPEED_MOTION=0.5; // Etwas schneller
 const int ENG_IDLE_MIN=15; const int ENG_KICK_VAL=30; const int ENG_KICK_TIME=350;
 const int VAL_OFF=0; const int VAL_TAXI=10; const int VAL_TO=40; const int STROBE_FLASH_VAL=50; 
 const int NAV_WING_VAL=40; const int NAV_TAIL_DIM=10; const int BEACON_VAL=255; const int VAL_LANDING_MAX=100;
+
+// SERVO LIMITS
 const int NOSE_POS_UP = 40; const int NOSE_POS_DOWN = 5;   
 const int MAIN_POS_UP = 65; const int MAIN_POS_DOWN = 5;   
 const int SUP_L_RETRACT = 110; const int SUP_L_EXTEND = 0;   
@@ -119,13 +116,13 @@ const int SUP_F_RETRACT = 0; const int SUP_F_EXTEND = 110;
 const int MOTION_NEUTRAL = 50; const int AIR_LIFT_OFFSET = 15; 
 
 // Forward Decl
-void updateHydraulics(); void updatePanelInputs(); void updateModelOutputs(); void waitAndAnimate(int waitTime); void runDemoSequence(); void printRow(String sub, int pin, String name, int switchVal, int lastVal, long simVal); void printDebugTable();
+void updateHydraulics(); void updatePanelInputs(); void updateModelOutputs(); void waitAndAnimate(int waitTime); void runDemoSequence(); void printRow(String sub, int pin, String name, int switchVal, int lastVal, long simVal); void printDebugTable(); void runServoTest();
 
 void setup() {
   Serial.begin(9600);
   for(int i=0; i<50; i++) changeTimer[i] = 0;
 
-  // --- READ REFS ---
+  // READ REFS
   mod_Nav     = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
   mod_Beacon  = XPlaneRef("sim/cockpit2/switches/beacon_on");
   mod_Strobe  = XPlaneRef("sim/cockpit2/switches/strobe_lights_on"); 
@@ -137,13 +134,13 @@ void setup() {
   mod_APU     = XPlaneRef("AirbusFBW/OH/Lights/APUStart");
 
   xGearHandle = XPlaneRef("sim/cockpit2/controls/gear_handle_down");
-  xOnGround = XPlaneRef("sim/flightmodel/failures/onground_any"); 
-  xBank = XPlaneRef("sim/flightmodel/position/phi");    
-  xPitch = XPlaneRef("sim/flightmodel/position/true_theta"); 
-  xEng1N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
-  xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
+  xOnGround   = XPlaneRef("sim/flightmodel/failures/onground_any"); 
+  xBank       = XPlaneRef("sim/flightmodel/position/phi");    
+  xPitch      = XPlaneRef("sim/flightmodel/position/true_theta"); 
+  xEng1N1     = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
+  xEng2N1     = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
 
-  // --- WRITE REFS ---
+  // WRITE REFS
   pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); 
   pan_Nav       = XPlaneRef("AirbusFBW/OHPLightSwitches[2]"); 
   pan_Nose      = XPlaneRef("AirbusFBW/OHPLightSwitches[3]"); 
@@ -154,17 +151,16 @@ void setup() {
   pan_Dome      = XPlaneRef("AirbusFBW/OHPLightSwitches[8]"); 
   pan_Seat      = XPlaneRef("AirbusFBW/OHPLightSwitches[11]"); 
 
-  // Systems
   pan_Wiper     = XPlaneRef("AirbusFBW/LeftWiperSwitch"); 
   cmd_Call      = XPlaneRef("AirbusFBW/purser/fwd"); 
   
-  // Hyd/Packs/APU
   pan_HydElec   = XPlaneRef("AirbusFBW/HydOHPArray[3]"); 
   pan_HydPTU    = XPlaneRef("AirbusFBW/HydOHPArray[4]"); 
   pan_Pack1     = XPlaneRef("AirbusFBW/Pack1Switch");
   pan_Pack2     = XPlaneRef("AirbusFBW/Pack2Switch");
   pan_APUM      = XPlaneRef("AirbusFBW/APUMaster"); 
   pan_APUS      = XPlaneRef("AirbusFBW/APUStarter"); 
+  
   pan_IceW      = XPlaneRef("AirbusFBW/WAISwitch"); 
   pan_IceE1     = XPlaneRef("AirbusFBW/ENG1AISwitch");
   pan_IceE2     = XPlaneRef("AirbusFBW/ENG2AISwitch");
@@ -187,7 +183,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v6.0 SERIAL CMD & FIX ---");
+  Serial.println("--- MOSAM v6.1 SERVO RESTORED ---");
 }
 
 void loop() {
@@ -197,54 +193,27 @@ void loop() {
 
   unsigned long now = millis();
   
-  // 1. CHECK DETECT (OHP Connected?)
   if (digitalRead(pinOHP_Detect) == LOW) {
       ohpConnected = true;
       if (!demoModeActive && !calMode) {
           if (now - lastOHPUpdate >= OHP_REFRESH_RATE) { lastOHPUpdate = now; updatePanelInputs(); }
       }
-  } else {
-      ohpConnected = false;
-  }
+  } else { ohpConnected = false; }
 
   if (!demoModeActive) { updateModelOutputs(); }
 
-  // 2. SERIAL COMMANDS WITH RECEIPTS
+  // SERIAL COMMANDS
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n'); cmd.trim();
-    
-    if (cmd.equalsIgnoreCase("debug")) { 
-        debugMode = true; 
-        Serial.println("CMD OK: Debug Mode ON (0.5s)");
-    } 
-    else if (cmd.equalsIgnoreCase("debugstop")) { 
-        debugMode = false; 
-        Serial.println("CMD OK: Debug Mode OFF");
-    }
-    else if (cmd.equalsIgnoreCase("status")) {
-        Serial.println("CMD OK: Single Status Report");
-        printDebugTable();
-    }
-    else if (cmd.equalsIgnoreCase("engrun")) {
-        run_eng = 1;
-        Serial.println("CMD OK: Engines ENABLED (Sim Sync)");
-    }
-    else if (cmd.equalsIgnoreCase("engstop")) {
-        run_eng = 0;
-        analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); // Sofort aus
-        Serial.println("CMD OK: Engines DISABLED (STOP)");
-    }
-    else if (cmd.startsWith("cal_left")) { 
-        calMode = true; manualRollOffset = cmd.substring(9).toInt(); calTargetBank = -40; 
-        Serial.println("CMD OK: Cal Left");
-    }
-    else if (cmd.equalsIgnoreCase("cal_off")) { 
-        calMode = false; manualRollOffset = 0; 
-        Serial.println("CMD OK: Cal Off");
-    }
-    else {
-        Serial.println("CMD: Unknown");
-    }
+    if (cmd.equalsIgnoreCase("debug")) { debugMode = true; Serial.println("CMD OK: Debug ON"); } 
+    else if (cmd.equalsIgnoreCase("debugstop")) { debugMode = false; Serial.println("CMD OK: Debug OFF"); }
+    else if (cmd.equalsIgnoreCase("status")) { Serial.println("CMD OK: Status"); printDebugTable(); }
+    else if (cmd.equalsIgnoreCase("engrun")) { run_eng = 1; Serial.println("CMD OK: Engines ON"); }
+    else if (cmd.equalsIgnoreCase("engstop")) { run_eng = 0; analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); Serial.println("CMD OK: Engines OFF"); }
+    else if (cmd.equalsIgnoreCase("servotest")) { Serial.println("CMD OK: Testing Servos..."); runServoTest(); }
+    else if (cmd.startsWith("cal_left")) { calMode = true; manualRollOffset = cmd.substring(9).toInt(); calTargetBank = -40; Serial.println("CMD OK: Cal Left"); }
+    else if (cmd.equalsIgnoreCase("cal_off")) { calMode = false; manualRollOffset = 0; Serial.println("CMD OK: Cal Off"); }
+    else { Serial.println("CMD: Unknown"); }
   }
   
   if (debugMode && (millis() - lastDebugTime > 500)) { 
@@ -253,126 +222,90 @@ void loop() {
   }
 }
 
-// =========================================================
-// LOGIC: UPDATE PANEL
-// =========================================================
 void updatePanelInputs() {
   int val; 
-
-  // P03 Beacon (Idx 0)
-  val = (digitalRead(sw_Beacon) == LOW);
-  if (val != last_Beacon) { pan_Beacon = val; last_Beacon = val; changeTimer[sw_Beacon] = millis(); }
-
-  // P04 Strobe (Idx 7) 
-  val = (digitalRead(sw_Strobe_On) == LOW) ? 2 : 1; 
-  if (val != last_Strobe) { pan_Strobe = val; last_Strobe = val; changeTimer[sw_Strobe_On] = millis(); }
-
-  // P05 Nav (Idx 2)
-  val = (digitalRead(sw_Nav_Master) == LOW) ? 2 : 0;
-  if (val != last_Nav) { pan_Nav = val; last_Nav = val; changeTimer[sw_Nav_Master] = millis(); }
-
-  // P06/07 Nose (Idx 3)
-  int noseState = 0; 
-  if (digitalRead(sw_Nose_TO) == LOW) noseState = 2;
-  else if (digitalRead(sw_Nose_Taxi) == HIGH) noseState = 1; 
-  if (noseState != last_Nose) { 
-      pan_Nose = noseState; 
-      last_Nose = noseState; 
-      changeTimer[sw_Nose_TO] = millis(); 
-  }
-
-  // P08 Rwy (Idx 6)
-  val = (digitalRead(sw_RwyTurnoff) == LOW);
-  if (val != last_Rwy) { pan_Rwy = val; last_Rwy = val; changeTimer[sw_RwyTurnoff] = millis(); }
-
-  // P09 Landing (Idx 4+5)
-  val = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0;
-  if (val != last_Land) { 
-      pan_LandL = val; pan_LandR = val; 
-      last_Land = val; 
-      changeTimer[sw_Landing_Master] = millis();
-  }
-
-  // P10 Seatbelt (Idx 11)
-  val = (digitalRead(sw_Seatbelts) == LOW);
-  if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
-
-  // P11 Dome (Idx 8)
-  val = (digitalRead(sw_Dome_Dim) == LOW);
-  if (val != last_Dome) { pan_Dome = val; last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); }
-
-  // --- SYSTEMS ---
-  
-  // P14 Call (COMMAND)
-  val = (digitalRead(sw_Call_Btn) == LOW);
-  if (val != last_Call) { 
-      if (val == 1) cmd_Call.once(); 
-      last_Call = val; 
-      changeTimer[sw_Call_Btn] = millis(); 
-  }
-
+  // P03 Beacon
+  val = (digitalRead(sw_Beacon) == LOW); if (val != last_Beacon) { pan_Beacon = val; last_Beacon = val; changeTimer[sw_Beacon] = millis(); }
+  // P04 Strobe
+  val = (digitalRead(sw_Strobe_On) == LOW) ? 2 : 1; if (val != last_Strobe) { pan_Strobe = val; last_Strobe = val; changeTimer[sw_Strobe_On] = millis(); }
+  // P05 Nav
+  val = (digitalRead(sw_Nav_Master) == LOW) ? 2 : 0; if (val != last_Nav) { pan_Nav = val; last_Nav = val; changeTimer[sw_Nav_Master] = millis(); }
+  // P06/07 Nose
+  int noseState = 0; if (digitalRead(sw_Nose_TO) == LOW) noseState = 2; else if (digitalRead(sw_Nose_Taxi) == HIGH) noseState = 1; 
+  if (noseState != last_Nose) { pan_Nose = noseState; last_Nose = noseState; changeTimer[sw_Nose_TO] = millis(); }
+  // P08 Rwy
+  val = (digitalRead(sw_RwyTurnoff) == LOW); if (val != last_Rwy) { pan_Rwy = val; last_Rwy = val; changeTimer[sw_RwyTurnoff] = millis(); }
+  // P09 Landing
+  val = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0; if (val != last_Land) { pan_LandL = val; pan_LandR = val; last_Land = val; changeTimer[sw_Landing_Master] = millis(); }
+  // P10 Seatbelt
+  val = (digitalRead(sw_Seatbelts) == LOW); if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
+  // P11 Dome
+  val = (digitalRead(sw_Dome_Dim) == LOW); if (val != last_Dome) { pan_Dome = val; last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); }
+  // P14 Call
+  val = (digitalRead(sw_Call_Btn) == LOW); if (val != last_Call) { if (val == 1) cmd_Call.once(); last_Call = val; changeTimer[sw_Call_Btn] = millis(); }
   // P12/13 Wiper
-  int wiperState = 0;
-  if (digitalRead(sw_Wiper_Fast) == LOW) wiperState = 2; else if (digitalRead(sw_Wiper_Slow) == LOW) wiperState = 1;
-  if (digitalRead(sw_Wiper_Slow) != last_WiperS || digitalRead(sw_Wiper_Fast) != last_WiperF) {
-      pan_Wiper = wiperState; 
-      last_WiperS = digitalRead(sw_Wiper_Slow); last_WiperF = digitalRead(sw_Wiper_Fast);
-      changeTimer[sw_Wiper_Slow] = millis();
-  }
-
+  int wiperState = 0; if (digitalRead(sw_Wiper_Fast) == LOW) wiperState = 2; else if (digitalRead(sw_Wiper_Slow) == LOW) wiperState = 1;
+  if (digitalRead(sw_Wiper_Slow) != last_WiperS || digitalRead(sw_Wiper_Fast) != last_WiperF) { pan_Wiper = wiperState; last_WiperS = digitalRead(sw_Wiper_Slow); last_WiperF = digitalRead(sw_Wiper_Fast); changeTimer[sw_Wiper_Slow] = millis(); }
   // P15/16 Ice
-  val = (digitalRead(sw_Ice_Wing) == LOW);
-  if (val != last_IceW) { pan_IceW = val; last_IceW = val; changeTimer[sw_Ice_Wing] = millis(); }
-  val = (digitalRead(sw_Ice_Eng_Comb) == LOW);
-  if (val != last_IceE) { 
-      pan_IceE1 = val; pan_IceE2 = val; 
-      last_IceE = val; 
-      changeTimer[sw_Ice_Eng_Comb] = millis(); 
-  }
-
+  val = (digitalRead(sw_Ice_Wing) == LOW); if (val != last_IceW) { pan_IceW = val; last_IceW = val; changeTimer[sw_Ice_Wing] = millis(); }
+  val = (digitalRead(sw_Ice_Eng_Comb) == LOW); if (val != last_IceE) { pan_IceE1 = val; pan_IceE2 = val; last_IceE = val; changeTimer[sw_Ice_Eng_Comb] = millis(); }
   // P17 APU M
-  val = (digitalRead(sw_APU_Master) == LOW);
-  if (val != last_APUM) { pan_APUM = val; last_APUM = val; changeTimer[sw_APU_Master] = millis(); }
-
+  val = (digitalRead(sw_APU_Master) == LOW); if (val != last_APUM) { pan_APUM = val; last_APUM = val; changeTimer[sw_APU_Master] = millis(); }
   // P18 APU S
-  val = (digitalRead(sw_APU_Start) == LOW);
-  if (val != last_APUS) { 
-      if (val == 1) pan_APUS = 1; 
-      last_APUS = val; 
-      changeTimer[sw_APU_Start] = millis(); 
-  }
-
+  val = (digitalRead(sw_APU_Start) == LOW); if (val != last_APUS) { if (val == 1) pan_APUS = 1; last_APUS = val; changeTimer[sw_APU_Start] = millis(); }
   // P19 APU B
-  val = (digitalRead(sw_APU_Bleed) == LOW);
-  if (val != last_APUB) { pan_APUB = val; last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); }
-
+  val = (digitalRead(sw_APU_Bleed) == LOW); if (val != last_APUB) { pan_APUB = val; last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); }
   // P20 XBleed
-  val = (digitalRead(sw_XBleed_Open) == LOW);
-  if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
-
+  val = (digitalRead(sw_XBleed_Open) == LOW); if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
   // P21 Elec
-  val = (digitalRead(sw_ElecPump) == LOW); 
-  if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
-
+  val = (digitalRead(sw_ElecPump) == LOW); if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
   // P22 PTU
-  val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1;
-  if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
-
+  val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1; if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
   // P23/24 Packs
-  val = (digitalRead(sw_Pack1) == LOW);
-  if (val != last_Pack1) { pan_Pack1 = val; last_Pack1 = val; changeTimer[sw_Pack1] = millis(); }
-  val = (digitalRead(sw_Pack2) == LOW);
-  if (val != last_Pack2) { pan_Pack2 = val; last_Pack2 = val; changeTimer[sw_Pack2] = millis(); }
+  val = (digitalRead(sw_Pack1) == LOW); if (val != last_Pack1) { pan_Pack1 = val; last_Pack1 = val; changeTimer[sw_Pack1] = millis(); }
+  val = (digitalRead(sw_Pack2) == LOW); if (val != last_Pack2) { pan_Pack2 = val; last_Pack2 = val; changeTimer[sw_Pack2] = millis(); }
 }
 
+// =========================================================
+// MODEL OUTPUTS (INCL. SERVO MATH)
+// =========================================================
 void updateModelOutputs() {
+  
+  // 1. Berechne Servo Targets (Das fehlte!)
+  if (FlightSim.isEnabled() || calMode) {
+      // Gear
+      if (xGearHandle == 1) { 
+          noseTarget = NOSE_POS_DOWN; 
+          mainTarget = MAIN_POS_DOWN; 
+      } else { 
+          noseTarget = NOSE_POS_UP; 
+          mainTarget = MAIN_POS_UP; 
+      }
+
+      // Motion (Pitch & Bank)
+      // Wir mappen die Sim-Werte (-30 bis +30 Grad) auf Servo-Offsets
+      float p = xPitch; 
+      float r = xBank;
+      if(calMode) { p = 0; r = calTargetBank; } // Override in CalMode
+
+      // Pitch wirkt auf alle Front/Back
+      int pitchOffset = (int)(p * 1.5); // Sensitivity
+      int bankOffset  = (int)(r * 1.5);
+
+      supFTarget = constrain(MOTION_NEUTRAL + pitchOffset, 0, 100); 
+      // Linke Seite: Bei Roll Links (negativ) runter, bei Pitch Up (pos) hinten runter?
+      // Vereinfachte Logik: Roll Rechts -> Rechts runter, Links hoch
+      supLTarget = constrain(MOTION_NEUTRAL - pitchOffset + bankOffset, 0, 100);
+      supRTarget = constrain(MOTION_NEUTRAL - pitchOffset - bankOffset, 0, 100);
+  }
+
+  // 2. Bewege Servos
   updateHydraulics();
+
+  // 3. Lichter & Engines
   if ((FlightSim.isEnabled() || calMode) && !demoModeActive) { 
-      bool isStrobe = (mod_Strobe == 1); 
-      bool isBeacon = (mod_Beacon == 1);
-      bool isNav    = (mod_Nav == 1);
-      bool isLand   = (mod_Land == 1); 
-      bool isTaxi   = (mod_Taxi == 1);
+      bool isStrobe = (mod_Strobe == 1); bool isBeacon = (mod_Beacon == 1);
+      bool isNav = (mod_Nav == 1); bool isLand = (mod_Land == 1); bool isTaxi = (mod_Taxi == 1);
 
       if (xGearHandle == 1) { 
           if (isLand) analogWrite(pinNoseLight, (int)(VAL_TO * brightnessScale)); 
@@ -380,19 +313,14 @@ void updateModelOutputs() {
           else analogWrite(pinNoseLight, 0); 
       } else analogWrite(pinNoseLight, 0); 
       
-      // ENGINE LOGIC WITH SERIAL SWITCH
       if (run_eng == 1) {
           int t1=0; if (xEng1N1 > 1) t1 = map((int)(float)xEng1N1, 15, 100, 0, 50); analogWrite(pinEng1, t1);
           int t2=0; if (xEng2N1 > 1) t2 = map((int)(float)xEng2N1, 15, 100, 0, 50); analogWrite(pinEng2, t2);
-      } else {
-          analogWrite(pinEng1, 0);
-          analogWrite(pinEng2, 0);
-      }
+      } else { analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); }
 
       if (isNav) analogWrite(pinWingNavs, (int)(40*brightnessScale)); else analogWrite(pinWingNavs, 0);
       if (isLand) analogWrite(pinLanding, (int)(100*brightnessScale)); 
-      else if (mod_Rwy > 0.1) analogWrite(pinLanding, (int)(40*brightnessScale)); 
-      else analogWrite(pinLanding, 0);
+      else if (mod_Rwy > 0.1) analogWrite(pinLanding, (int)(40*brightnessScale)); else analogWrite(pinLanding, 0);
 
       unsigned long mt = millis() % 1000; 
       if (isBeacon && mt >= 500 && mt < 600) analogWrite(pinBeacon, (int)(255*brightnessScale)); else analogWrite(pinBeacon, 0);
@@ -403,49 +331,51 @@ void updateModelOutputs() {
   }
 }
 
+void runServoTest() {
+    Serial.println("TEST: Neutral");
+    noseGear.write(NOSE_POS_DOWN); mainGear.write(MAIN_POS_DOWN);
+    supLeft.write(50); supRight.write(50); supFront.write(50);
+    delay(1000);
+    Serial.println("TEST: Full Motion");
+    supLeft.write(100); supRight.write(100); supFront.write(100);
+    delay(1000);
+    supLeft.write(0); supRight.write(0); supFront.write(0);
+    delay(1000);
+    Serial.println("TEST: Gear Up");
+    noseGear.write(NOSE_POS_UP); mainGear.write(MAIN_POS_UP);
+    delay(1000);
+    Serial.println("TEST: Done");
+    noseGear.write(NOSE_POS_DOWN); mainGear.write(MAIN_POS_DOWN);
+    supLeft.write(50); supRight.write(50); supFront.write(50);
+}
+
 void printRow(String sub, int pin, String name, int switchVal, int lastVal, long simVal) {
     String pS = (switchVal == 0) ? "ON " : "OFF"; 
     bool blocked = (millis() - changeTimer[pin] < BLOCK_TIME);
     String chg = blocked ? " + " : " - "; 
-    
-    // Custom Text für Command
-    String sVal = String(simVal);
-    if (name.equals("CALL")) sVal = (switchVal == 0) ? "TRIG" : " - ";
-
-    Serial.print("P"); Serial.print(sub); Serial.print("/T"); Serial.print(pin); 
-    Serial.print(" "); Serial.print(name); 
+    String sVal = String(simVal); if (name.equals("CALL")) sVal = (switchVal == 0) ? "TRIG" : " - ";
+    Serial.print("P"); Serial.print(sub); Serial.print("/T"); Serial.print(pin); Serial.print(" "); Serial.print(name); 
     while(name.length() < 9) { Serial.print(" "); name += " "; } 
-    Serial.print("| "); Serial.print(pS); 
-    Serial.print(" |  "); Serial.print(chg); 
-    Serial.print("  | "); Serial.println(sVal);
+    Serial.print("| "); Serial.print(pS); Serial.print(" |  "); Serial.print(chg); Serial.print("  | "); Serial.println(sVal);
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v6.0) ---"); 
-    Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONNECTED" : "DISCONNECTED");
-    Serial.print(" | ENGINES: "); Serial.println(run_eng ? "ENABLED" : "STOPPED");
+    Serial.println("\n--- DEBUG STATUS (v6.1) ---"); 
+    Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
+    Serial.print(" | ENGINES: "); Serial.println(run_eng ? "ON" : "OFF");
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
-    
     printRow("03", 18, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
     printRow("04", 16, "STROBE", digitalRead(sw_Strobe_On), last_Strobe, mod_Strobe);
     printRow("05", 17, "NAV",    digitalRead(sw_Nav_Master), last_Nav, mod_Nav);
-    
-    Serial.print("P06/07 NOSE (TX/TO)  | "); 
-    if (digitalRead(sw_Nose_TO)==LOW) Serial.print("TO "); 
-    else if (digitalRead(sw_Nose_Taxi)==HIGH) Serial.print("TAXI"); 
-    else Serial.print("OFF ");
-    bool nBlocked = (millis() - changeTimer[sw_Nose_TO] < BLOCK_TIME);
-    Serial.print(" |  "); Serial.print(nBlocked ? " + " : " - "); Serial.print("  | "); Serial.println(mod_Taxi);
-
+    Serial.print("P06/07 NOSE (TX/TO)  | "); if (digitalRead(sw_Nose_TO)==LOW) Serial.print("TO "); else if (digitalRead(sw_Nose_Taxi)==HIGH) Serial.print("TAXI"); else Serial.print("OFF ");
+    bool nBlocked = (millis() - changeTimer[sw_Nose_TO] < BLOCK_TIME); Serial.print(" |  "); Serial.print(nBlocked ? " + " : " - "); Serial.print("  | "); Serial.println(mod_Taxi);
     printRow("08", 21, "RWY_TRN", digitalRead(sw_RwyTurnoff), last_Rwy, mod_Rwy);
     printRow("09", 22, "LANDING", digitalRead(sw_Landing_Master), last_Land, mod_Land);
     printRow("10", 24, "SEATBLT", digitalRead(sw_Seatbelts), last_Seat, mod_Seat);
     printRow("11", 25, "DOME",    digitalRead(sw_Dome_Dim), last_Dome, mod_Dome);
-    
     printRow("14", 29, "CALL",    digitalRead(sw_Call_Btn), last_Call, 0); 
     printRow("15", 30, "ICE_W",   digitalRead(sw_Ice_Wing), last_IceW, 0);
     printRow("16", 31, "ICE_E",   digitalRead(sw_Ice_Eng_Comb), last_IceE, 0);
-    
     printRow("17", 34, "APU_MAS", digitalRead(sw_APU_Master), last_APUM, 0);
     printRow("18", 35, "APU_STR", digitalRead(sw_APU_Start), last_APUS, mod_APU);
     printRow("19", 36, "APU_BLD", digitalRead(sw_APU_Bleed), last_APUB, 0);
@@ -454,8 +384,8 @@ void printDebugTable() {
     printRow("22", 39, "PTU",     digitalRead(sw_PTU_Off), last_PTU, 0);
     printRow("23", 40, "PACK1",   digitalRead(sw_Pack1), last_Pack1, 0);
     printRow("24", 32, "PACK2",   digitalRead(sw_Pack2), last_Pack2, 0);
-    
     Serial.println("----------------------------------------------");
+    Serial.print("GEAR: "); Serial.print((int)xGearHandle); Serial.print(" | NOSE_TGT: "); Serial.println(noseTarget);
 }
 
 void updateHydraulics() {
