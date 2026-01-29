@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v5.5 - CALL BUTTON AS COMMAND
+//      MOSAM v6.0 - SERIAL COMMANDER & ENGINE FIX
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -16,30 +16,30 @@ const int pinBeacon = 8; const int pinEng1 = 9; const int pinEng2 = 10;
 const int pinLanding = 11; const int pinSupLeft = 12; const int pinSupRight = 13; 
 const int pinSupFront = 41; const int pinProgButton = 33; 
 
-// --- PINS (INPUTS PANEL - SUB-D MAPPING) ---
-const int pinOHP_Detect = 1;   // P01 (Detect)
-const int sw_Beacon = 18;      // P03
-const int sw_Strobe_On = 16;   // P04
-const int sw_Nav_Master = 17;  // P05
-const int sw_Nose_Taxi = 19;   // P06
-const int sw_Nose_TO = 20;     // P07
-const int sw_RwyTurnoff = 21;  // P08
-const int sw_Landing_Master = 22; // P09
-const int sw_Seatbelts = 24;   // P10
-const int sw_Dome_Dim = 25;    // P11
-const int sw_Wiper_Slow = 27;  // P12
-const int sw_Wiper_Fast = 28;  // P13
-const int sw_Call_Btn = 29;    // P14
-const int sw_Ice_Wing = 30;    // P15
-const int sw_Ice_Eng_Comb = 31; // P16
-const int sw_APU_Master = 34;  // P17
-const int sw_APU_Start = 35;   // P18
-const int sw_APU_Bleed = 36;   // P19
-const int sw_XBleed_Open = 37; // P20
-const int sw_ElecPump = 38;    // P21
-const int sw_PTU_Off = 39;     // P22
-const int sw_Pack1 = 40;       // P23
-const int sw_Pack2 = 32;       // P24
+// --- PINS (INPUTS PANEL) ---
+const int pinOHP_Detect = 1;   
+const int sw_Beacon = 18;      
+const int sw_Strobe_On = 16;   
+const int sw_Nav_Master = 17;  
+const int sw_Nose_Taxi = 19;   
+const int sw_Nose_TO = 20;     
+const int sw_RwyTurnoff = 21;  
+const int sw_Landing_Master = 22; 
+const int sw_Seatbelts = 24;   
+const int sw_Dome_Dim = 25;    
+const int sw_Wiper_Slow = 27;  
+const int sw_Wiper_Fast = 28;  
+const int sw_Call_Btn = 29;    
+const int sw_Ice_Wing = 30;    
+const int sw_Ice_Eng_Comb = 31; 
+const int sw_APU_Master = 34;  
+const int sw_APU_Start = 35;   
+const int sw_APU_Bleed = 36;   
+const int sw_XBleed_Open = 37; 
+const int sw_ElecPump = 38;    
+const int sw_PTU_Off = 39;     
+const int sw_Pack1 = 40;       
+const int sw_Pack2 = 32;       
 
 // --- VARS ---
 unsigned long lastOHPUpdate = 0; const int OHP_REFRESH_RATE = 50; 
@@ -60,7 +60,6 @@ int last_XBleed = -1; int last_Elec = -1; int last_PTU = -1;
 int last_Pack1 = -1; int last_Pack2 = -1;
 
 // --- WRITE REFS (TO SIM) ---
-// Lights (Array)
 FlightSimInteger pan_Beacon; // Index 0
 FlightSimInteger pan_Nav;    // Index 2
 FlightSimInteger pan_Nose;   // Index 3
@@ -73,7 +72,7 @@ FlightSimInteger pan_Seat;   // Index 11
 
 // Systems
 FlightSimInteger pan_Wiper;     
-FlightSimCommand cmd_Call;      // NEU: Command statt Integer!
+FlightSimCommand cmd_Call;      
 FlightSimInteger pan_IceW;      
 FlightSimInteger pan_IceE1;     
 FlightSimInteger pan_IceE2;     
@@ -99,8 +98,11 @@ FlightSimFloat xEng1N1; FlightSimFloat xEng2N1;
 // --- INTERNALS ---
 float noseCurrent = 5; int noseTarget = 5; float mainCurrent = 5; int mainTarget = 5;
 float supLCurrent = 0; int supLTarget = 0; float supRCurrent = 0; int supRTarget = 0; float supFCurrent = 0; int supFTarget = 0;
-unsigned long lastMoveTime = 0; int eng1TargetPWM = 0; int eng2TargetPWM = 0;
-unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; int run_eng = 0; float brightnessScale = 1.0; 
+unsigned long lastMoveTime = 0; 
+int eng1TargetPWM = 0; int eng2TargetPWM = 0;
+unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; 
+int run_eng = 0; // DEFAULT 0 (OFF)
+float brightnessScale = 1.0; 
 bool calMode = false; float calTargetBank = 0; float calTargetPitch = 0; int manualRollOffset = 0; int manualPitchOffset = 0;    
 bool demoHasRun = false; bool demoModeActive = false; int demoNoseLightVal = 0; 
 
@@ -154,9 +156,7 @@ void setup() {
 
   // Systems
   pan_Wiper     = XPlaneRef("AirbusFBW/LeftWiperSwitch"); 
-  
-  // COMMAND
-  cmd_Call      = XPlaneRef("AirbusFBW/purser/fwd"); // Zuweisung als String für Command
+  cmd_Call      = XPlaneRef("AirbusFBW/purser/fwd"); 
   
   // Hyd/Packs/APU
   pan_HydElec   = XPlaneRef("AirbusFBW/HydOHPArray[3]"); 
@@ -165,7 +165,6 @@ void setup() {
   pan_Pack2     = XPlaneRef("AirbusFBW/Pack2Switch");
   pan_APUM      = XPlaneRef("AirbusFBW/APUMaster"); 
   pan_APUS      = XPlaneRef("AirbusFBW/APUStarter"); 
-  
   pan_IceW      = XPlaneRef("AirbusFBW/WAISwitch"); 
   pan_IceE1     = XPlaneRef("AirbusFBW/ENG1AISwitch");
   pan_IceE2     = XPlaneRef("AirbusFBW/ENG2AISwitch");
@@ -188,7 +187,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v5.5 CALL COMMAND ---");
+  Serial.println("--- MOSAM v6.0 SERIAL CMD & FIX ---");
 }
 
 void loop() {
@@ -210,11 +209,42 @@ void loop() {
 
   if (!demoModeActive) { updateModelOutputs(); }
 
+  // 2. SERIAL COMMANDS WITH RECEIPTS
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n'); cmd.trim();
-    if (cmd.equalsIgnoreCase("debug")) debugMode = true; else if (cmd.equalsIgnoreCase("debugstop")) debugMode = false;
-    else if (cmd.startsWith("cal_left")) { calMode = true; manualRollOffset = cmd.substring(9).toInt(); calTargetBank = -40; }
-    else if (cmd == "cal_off") { calMode = false; manualRollOffset = 0; }
+    
+    if (cmd.equalsIgnoreCase("debug")) { 
+        debugMode = true; 
+        Serial.println("CMD OK: Debug Mode ON (0.5s)");
+    } 
+    else if (cmd.equalsIgnoreCase("debugstop")) { 
+        debugMode = false; 
+        Serial.println("CMD OK: Debug Mode OFF");
+    }
+    else if (cmd.equalsIgnoreCase("status")) {
+        Serial.println("CMD OK: Single Status Report");
+        printDebugTable();
+    }
+    else if (cmd.equalsIgnoreCase("engrun")) {
+        run_eng = 1;
+        Serial.println("CMD OK: Engines ENABLED (Sim Sync)");
+    }
+    else if (cmd.equalsIgnoreCase("engstop")) {
+        run_eng = 0;
+        analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); // Sofort aus
+        Serial.println("CMD OK: Engines DISABLED (STOP)");
+    }
+    else if (cmd.startsWith("cal_left")) { 
+        calMode = true; manualRollOffset = cmd.substring(9).toInt(); calTargetBank = -40; 
+        Serial.println("CMD OK: Cal Left");
+    }
+    else if (cmd.equalsIgnoreCase("cal_off")) { 
+        calMode = false; manualRollOffset = 0; 
+        Serial.println("CMD OK: Cal Off");
+    }
+    else {
+        Serial.println("CMD: Unknown");
+    }
   }
   
   if (debugMode && (millis() - lastDebugTime > 500)) { 
@@ -224,7 +254,7 @@ void loop() {
 }
 
 // =========================================================
-// LOGIC: UPDATE PANEL (TOLISS LOGIC)
+// LOGIC: UPDATE PANEL
 // =========================================================
 void updatePanelInputs() {
   int val; 
@@ -273,10 +303,10 @@ void updatePanelInputs() {
 
   // --- SYSTEMS ---
   
-  // P14 Call (COMMAND TRIGGER)
+  // P14 Call (COMMAND)
   val = (digitalRead(sw_Call_Btn) == LOW);
   if (val != last_Call) { 
-      if (val == 1) cmd_Call.once(); // FIRE COMMAND ONCE
+      if (val == 1) cmd_Call.once(); 
       last_Call = val; 
       changeTimer[sw_Call_Btn] = millis(); 
   }
@@ -304,7 +334,7 @@ void updatePanelInputs() {
   val = (digitalRead(sw_APU_Master) == LOW);
   if (val != last_APUM) { pan_APUM = val; last_APUM = val; changeTimer[sw_APU_Master] = millis(); }
 
-  // P18 APU S (Taster Ref)
+  // P18 APU S
   val = (digitalRead(sw_APU_Start) == LOW);
   if (val != last_APUS) { 
       if (val == 1) pan_APUS = 1; 
@@ -350,8 +380,14 @@ void updateModelOutputs() {
           else analogWrite(pinNoseLight, 0); 
       } else analogWrite(pinNoseLight, 0); 
       
-      int t1=0; if (xEng1N1 > 1) t1 = map((int)(float)xEng1N1, 15, 100, 0, 50); analogWrite(pinEng1, t1);
-      int t2=0; if (xEng2N1 > 1) t2 = map((int)(float)xEng2N1, 15, 100, 0, 50); analogWrite(pinEng2, t2);
+      // ENGINE LOGIC WITH SERIAL SWITCH
+      if (run_eng == 1) {
+          int t1=0; if (xEng1N1 > 1) t1 = map((int)(float)xEng1N1, 15, 100, 0, 50); analogWrite(pinEng1, t1);
+          int t2=0; if (xEng2N1 > 1) t2 = map((int)(float)xEng2N1, 15, 100, 0, 50); analogWrite(pinEng2, t2);
+      } else {
+          analogWrite(pinEng1, 0);
+          analogWrite(pinEng2, 0);
+      }
 
       if (isNav) analogWrite(pinWingNavs, (int)(40*brightnessScale)); else analogWrite(pinWingNavs, 0);
       if (isLand) analogWrite(pinLanding, (int)(100*brightnessScale)); 
@@ -385,8 +421,9 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v5.5) ---"); 
-    Serial.print("PANEL: "); Serial.println(ohpConnected ? "CONNECTED" : "DISCONNECTED");
+    Serial.println("\n--- DEBUG STATUS (v6.0) ---"); 
+    Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONNECTED" : "DISCONNECTED");
+    Serial.print(" | ENGINES: "); Serial.println(run_eng ? "ENABLED" : "STOPPED");
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
     
     printRow("03", 18, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
