@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v6.2 - STARTUP SAFETY & DEBOUNCE
+//      MOSAM v6.3 - COMPILATION FIX (Forward Decl)
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -54,8 +54,8 @@ const unsigned long BLOCK_TIME = 1200;
 unsigned long startupTimer = 0;
 unsigned long detectDebounceStart = 0;
 bool detectPinStable = false;
-const unsigned long STARTUP_DELAY = 1500; // 1.5 Sek warten nach Boot
-const unsigned long DETECT_STABLE_TIME = 500; // 0.5 Sek muss Pin1 LOW sein
+const unsigned long STARTUP_DELAY = 1500; 
+const unsigned long DETECT_STABLE_TIME = 500; 
 
 // --- STATE MEMORY ---
 int last_Beacon = -1; int last_Strobe = -1; int last_Nav = -1;
@@ -66,7 +66,7 @@ int last_APUM = -1; int last_APUS = -1; int last_APUB = -1;
 int last_XBleed = -1; int last_Elec = -1; int last_PTU = -1;
 int last_Pack1 = -1; int last_Pack2 = -1;
 
-// --- WRITE REFS (TO SIM) ---
+// --- WRITE REFS ---
 FlightSimInteger pan_Beacon; 
 FlightSimInteger pan_Nav;    
 FlightSimInteger pan_Nose;   
@@ -91,7 +91,7 @@ FlightSimInteger pan_HydPTU;
 FlightSimInteger pan_Pack1;     
 FlightSimInteger pan_Pack2;     
 
-// --- READ REFS (SIM FEEDBACK) ---
+// --- READ REFS ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
 FlightSimInteger mod_Land; FlightSimInteger mod_Taxi; FlightSimInteger mod_Rwy; 
 FlightSimInteger mod_Dome; 
@@ -121,13 +121,15 @@ const int SUP_R_RETRACT = 0; const int SUP_R_EXTEND = 110;
 const int SUP_F_RETRACT = 0; const int SUP_F_EXTEND = 110;  
 const int MOTION_NEUTRAL = 50; const int AIR_LIFT_OFFSET = 15; 
 
-// Forward Decl
-void updateHydraulics(); void updatePanelInputs(); void updateModelOutputs(); void waitAndAnimate(int waitTime); void runDemoSequence(); void printRow(String sub, int pin, String name, int switchVal, int lastVal, long simVal); void printDebugTable();
+// Forward Decl (FIXED: runServoTest added)
+void updateHydraulics(); void updatePanelInputs(); void updateModelOutputs(); void waitAndAnimate(int waitTime); 
+void runDemoSequence(); void printRow(String sub, int pin, String name, int switchVal, int lastVal, long simVal); 
+void printDebugTable(); void runServoTest();
 
 void setup() {
   Serial.begin(9600);
   for(int i=0; i<50; i++) changeTimer[i] = 0;
-  startupTimer = millis(); // Start Zeit merken
+  startupTimer = millis(); 
 
   // --- READ REFS ---
   mod_Nav     = XPlaneRef("sim/cockpit2/switches/navigation_lights_on");
@@ -190,7 +192,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v6.2 STARTUP SAFETY ---");
+  Serial.println("--- MOSAM v6.3 FIXED DECLARATION ---");
 }
 
 void loop() {
@@ -200,26 +202,23 @@ void loop() {
   if (digitalRead(pinProgButton) == LOW) { delay(50); if (digitalRead(pinProgButton) == LOW) { if (millis() < 30000 && !demoHasRun) runDemoSequence(); else { analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); Serial.println("PROG"); delay(100); asm("bkpt #251"); }}}
 
   // 1. SAFETY & DETECT LOGIC
-  bool safeToRun = (now - startupTimer > STARTUP_DELAY); // Erst nach 1.5 sekunden aktiv werden
+  bool safeToRun = (now - startupTimer > STARTUP_DELAY); 
   
   if (safeToRun) {
       if (digitalRead(pinOHP_Detect) == LOW) {
-          // Pin ist LOW -> Checken wie lange schon
-          if (detectDebounceStart == 0) detectDebounceStart = now; // Start Counting
+          if (detectDebounceStart == 0) detectDebounceStart = now; 
           else if (now - detectDebounceStart > DETECT_STABLE_TIME) {
-              // Stabil verbunden
               if (!ohpConnected) { Serial.println("SYS: PANEL CONNECTED"); }
               ohpConnected = true;
           }
       } else {
-          // Pin ist HIGH -> Sofort resetten
           detectDebounceStart = 0;
           if (ohpConnected) { Serial.println("SYS: PANEL DISCONNECTED"); }
           ohpConnected = false;
       }
   }
 
-  // 2. PANEL INPUT UPDATE (Nur wenn Safe & Connected)
+  // 2. PANEL INPUT UPDATE
   if (ohpConnected && !demoModeActive && !calMode) {
       if (now - lastOHPUpdate >= OHP_REFRESH_RATE) { lastOHPUpdate = now; updatePanelInputs(); }
   }
@@ -292,7 +291,6 @@ void updatePanelInputs() {
 
 void updateModelOutputs() {
   
-  // 1. Berechne Servo Targets
   if (FlightSim.isEnabled() || calMode) {
       if (xGearHandle == 1) { noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN; } 
       else { noseTarget = NOSE_POS_UP; mainTarget = MAIN_POS_UP; }
@@ -307,10 +305,8 @@ void updateModelOutputs() {
       supRTarget = constrain(MOTION_NEUTRAL - pitchOffset - bankOffset, 0, 100);
   }
 
-  // 2. Bewege Servos
   updateHydraulics();
 
-  // 3. Lichter & Engines
   if ((FlightSim.isEnabled() || calMode) && !demoModeActive) { 
       bool isStrobe = (mod_Strobe == 1); bool isBeacon = (mod_Beacon == 1);
       bool isNav = (mod_Nav == 1); bool isLand = (mod_Land == 1); bool isTaxi = (mod_Taxi == 1);
@@ -349,6 +345,9 @@ void runServoTest() {
     delay(1000);
     supLeft.write(0); supRight.write(0); supFront.write(0);
     delay(1000);
+    Serial.println("TEST: Gear Up");
+    noseGear.write(NOSE_POS_UP); mainGear.write(MAIN_POS_UP);
+    delay(1000);
     Serial.println("TEST: Done");
     noseGear.write(NOSE_POS_DOWN); mainGear.write(MAIN_POS_DOWN);
     supLeft.write(50); supRight.write(50); supFront.write(50);
@@ -365,7 +364,7 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v6.2) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v6.3) ---"); 
     Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
     Serial.print(" | ENGINES: "); Serial.println(run_eng ? "ON" : "OFF");
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
