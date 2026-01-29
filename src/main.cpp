@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v6.3 - COMPILATION FIX (Forward Decl)
+//      MOSAM v6.5 - SERIAL NIGHT/DAY RESTORED
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -16,7 +16,7 @@ const int pinBeacon = 8; const int pinEng1 = 9; const int pinEng2 = 10;
 const int pinLanding = 11; const int pinSupLeft = 12; const int pinSupRight = 13; 
 const int pinSupFront = 41; const int pinProgButton = 33; 
 
-// --- PINS (INPUTS PANEL) ---
+// --- PINS (INPUTS PANEL - SUB-D MAPPING) ---
 const int pinOHP_Detect = 1;   // P01 (Detect)
 const int sw_Beacon = 18;      // P03
 const int sw_Strobe_On = 16;   // P04
@@ -105,7 +105,12 @@ FlightSimFloat xEng1N1; FlightSimFloat xEng2N1;
 float noseCurrent = 5; int noseTarget = 5; float mainCurrent = 5; int mainTarget = 5;
 float supLCurrent = 0; int supLTarget = 0; float supRCurrent = 0; int supRTarget = 0; float supFCurrent = 0; int supFTarget = 0;
 unsigned long lastMoveTime = 0; int eng1TargetPWM = 0; int eng2TargetPWM = 0;
-unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; int run_eng = 0; float brightnessScale = 1.0; 
+unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; int run_eng = 0; 
+
+// DIMMING & NIGHT MODE
+float brightnessScale = 1.0; 
+bool serialNightMode = false; // Default DAY
+
 bool calMode = false; float calTargetBank = 0; float calTargetPitch = 0; int manualRollOffset = 0; int manualPitchOffset = 0;    
 bool demoHasRun = false; bool demoModeActive = false; int demoNoseLightVal = 0; 
 
@@ -121,7 +126,7 @@ const int SUP_R_RETRACT = 0; const int SUP_R_EXTEND = 110;
 const int SUP_F_RETRACT = 0; const int SUP_F_EXTEND = 110;  
 const int MOTION_NEUTRAL = 50; const int AIR_LIFT_OFFSET = 15; 
 
-// Forward Decl (FIXED: runServoTest added)
+// Forward Decl
 void updateHydraulics(); void updatePanelInputs(); void updateModelOutputs(); void waitAndAnimate(int waitTime); 
 void runDemoSequence(); void printRow(String sub, int pin, String name, int switchVal, int lastVal, long simVal); 
 void printDebugTable(); void runServoTest();
@@ -192,7 +197,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v6.3 FIXED DECLARATION ---");
+  Serial.println("--- MOSAM v6.5 NIGHT/DAY FIX ---");
 }
 
 void loop() {
@@ -233,6 +238,8 @@ void loop() {
     else if (cmd.equalsIgnoreCase("status")) { Serial.println("CMD OK: Status"); printDebugTable(); }
     else if (cmd.equalsIgnoreCase("engrun")) { run_eng = 1; Serial.println("CMD OK: Engines ON"); }
     else if (cmd.equalsIgnoreCase("engstop")) { run_eng = 0; analogWrite(pinEng1, 0); analogWrite(pinEng2, 0); Serial.println("CMD OK: Engines OFF"); }
+    else if (cmd.equalsIgnoreCase("night")) { serialNightMode = true; Serial.println("CMD OK: Night Mode (50%)"); }
+    else if (cmd.equalsIgnoreCase("day")) { serialNightMode = false; Serial.println("CMD OK: Day Mode (100%)"); }
     else if (cmd.equalsIgnoreCase("servotest")) { Serial.println("CMD OK: Testing Servos..."); runServoTest(); }
     else if (cmd.startsWith("cal_left")) { calMode = true; manualRollOffset = cmd.substring(9).toInt(); calTargetBank = -40; Serial.println("CMD OK: Cal Left"); }
     else if (cmd.equalsIgnoreCase("cal_off")) { calMode = false; manualRollOffset = 0; Serial.println("CMD OK: Cal Off"); }
@@ -291,6 +298,17 @@ void updatePanelInputs() {
 
 void updateModelOutputs() {
   
+  // 1. DIMMING CALCULATION
+  // Default: Day (1.0)
+  brightnessScale = 1.0;
+  
+  // Serial Override: Night (0.5)
+  if (serialNightMode) brightnessScale = 0.5;
+  
+  // Hardware Switch Override: DIM (0.3) - Stärker als alles andere
+  if (digitalRead(sw_Dome_Dim) == LOW) brightnessScale = 0.3;
+
+  // 2. SERVO TARGETS
   if (FlightSim.isEnabled() || calMode) {
       if (xGearHandle == 1) { noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN; } 
       else { noseTarget = NOSE_POS_UP; mainTarget = MAIN_POS_UP; }
@@ -345,9 +363,6 @@ void runServoTest() {
     delay(1000);
     supLeft.write(0); supRight.write(0); supFront.write(0);
     delay(1000);
-    Serial.println("TEST: Gear Up");
-    noseGear.write(NOSE_POS_UP); mainGear.write(MAIN_POS_UP);
-    delay(1000);
     Serial.println("TEST: Done");
     noseGear.write(NOSE_POS_DOWN); mainGear.write(MAIN_POS_DOWN);
     supLeft.write(50); supRight.write(50); supFront.write(50);
@@ -364,9 +379,14 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v6.3) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v6.5) ---"); 
     Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
-    Serial.print(" | ENGINES: "); Serial.println(run_eng ? "ON" : "OFF");
+    Serial.print(" | ENG: "); Serial.print(run_eng ? "ON" : "OFF");
+    Serial.print(" | DIM: "); 
+    if (brightnessScale < 0.4) Serial.println("HARD (30%)");
+    else if (brightnessScale < 0.9) Serial.println("NIGHT (50%)");
+    else Serial.println("DAY (100%)");
+
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
     printRow("03", 18, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
     printRow("04", 16, "STROBE", digitalRead(sw_Strobe_On), last_Strobe, mod_Strobe);
