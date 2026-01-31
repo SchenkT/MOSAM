@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v6.5 - SERIAL NIGHT/DAY RESTORED
+//      MOSAM v6.7 - PACK LOGIC FIX & A330 SUPPORT
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -18,10 +18,10 @@ const int pinSupFront = 41; const int pinProgButton = 33;
 
 // --- PINS (INPUTS PANEL - SUB-D MAPPING) ---
 const int pinOHP_Detect = 1;   // P01 (Detect)
-const int sw_Beacon = 18;      // P03
+const int sw_Beacon = 15;      // P03 (Pin 15)
 const int sw_Strobe_On = 16;   // P04
 const int sw_Nav_Master = 17;  // P05
-const int sw_Nose_Taxi = 19;   // P06
+const int sw_Nose_Taxi = 23;   // P06 (Pin 23)
 const int sw_Nose_TO = 20;     // P07
 const int sw_RwyTurnoff = 21;  // P08
 const int sw_Landing_Master = 22; // P09
@@ -91,6 +91,10 @@ FlightSimInteger pan_HydPTU;
 FlightSimInteger pan_Pack1;     
 FlightSimInteger pan_Pack2;     
 
+// --- NEW A330 REFS ---
+FlightSimInteger pan_APUB_330; 
+FlightSimInteger pan_Dome_330;
+
 // --- READ REFS ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
 FlightSimInteger mod_Land; FlightSimInteger mod_Taxi; FlightSimInteger mod_Rwy; 
@@ -107,9 +111,9 @@ float supLCurrent = 0; int supLTarget = 0; float supRCurrent = 0; int supRTarget
 unsigned long lastMoveTime = 0; int eng1TargetPWM = 0; int eng2TargetPWM = 0;
 unsigned long eng1KickEnd = 0; unsigned long eng2KickEnd = 0; int run_eng = 0; 
 
-// DIMMING & NIGHT MODE
+// DIMMING
 float brightnessScale = 1.0; 
-bool serialNightMode = false; // Default DAY
+bool serialNightMode = false;
 
 bool calMode = false; float calTargetBank = 0; float calTargetPitch = 0; int manualRollOffset = 0; int manualPitchOffset = 0;    
 bool demoHasRun = false; bool demoModeActive = false; int demoNoseLightVal = 0; 
@@ -181,6 +185,10 @@ void setup() {
   pan_APUB      = XPlaneRef("sim/cockpit2/bleedair/apu_bleed_on");
   pan_XBleed    = XPlaneRef("AirbusFBW/XBleedSwitch"); 
 
+  // --- NEW A330 REFS ---
+  pan_APUB_330  = XPlaneRef("AirbusFBW/APUBleedSwitch"); 
+  pan_Dome_330  = XPlaneRef("AirbusFBW/OHPLightSwitches[13]"); 
+
   // PINS
   pinMode(pinNoseLight, OUTPUT); pinMode(pinWingStrobes, OUTPUT); pinMode(pinTailCombined, OUTPUT); 
   pinMode(pinWingNavs, OUTPUT); pinMode(pinBeacon, OUTPUT); pinMode(pinEng1, OUTPUT); 
@@ -197,7 +205,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v6.5 NIGHT/DAY FIX ---");
+  Serial.println("--- MOSAM v6.7 PACK FIX & A330 ---");
 }
 
 void loop() {
@@ -269,8 +277,15 @@ void updatePanelInputs() {
   val = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0; if (val != last_Land) { pan_LandL = val; pan_LandR = val; last_Land = val; changeTimer[sw_Landing_Master] = millis(); }
   // P10 Seatbelt
   val = (digitalRead(sw_Seatbelts) == LOW); if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
-  // P11 Dome
-  val = (digitalRead(sw_Dome_Dim) == LOW); if (val != last_Dome) { pan_Dome = val; last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); }
+  
+  // P11 Dome (UPDATE A330)
+  val = (digitalRead(sw_Dome_Dim) == LOW); // 1=DIM/ON, 0=OFF
+  if (val != last_Dome) { 
+      pan_Dome = val; 
+      pan_Dome_330 = val; // Index 13 für A330
+      last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); 
+  }
+  
   // P14 Call
   val = (digitalRead(sw_Call_Btn) == LOW); if (val != last_Call) { if (val == 1) cmd_Call.once(); last_Call = val; changeTimer[sw_Call_Btn] = millis(); }
   // P12/13 Wiper
@@ -283,29 +298,36 @@ void updatePanelInputs() {
   val = (digitalRead(sw_APU_Master) == LOW); if (val != last_APUM) { pan_APUM = val; last_APUM = val; changeTimer[sw_APU_Master] = millis(); }
   // P18 APU S
   val = (digitalRead(sw_APU_Start) == LOW); if (val != last_APUS) { if (val == 1) pan_APUS = 1; last_APUS = val; changeTimer[sw_APU_Start] = millis(); }
-  // P19 APU B
-  val = (digitalRead(sw_APU_Bleed) == LOW); if (val != last_APUB) { pan_APUB = val; last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); }
+  
+  // P19 APU B (UPDATE A330)
+  val = (digitalRead(sw_APU_Bleed) == LOW); 
+  if (val != last_APUB) { 
+      pan_APUB = val; 
+      pan_APUB_330 = val; // Extra Ref für A330
+      last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); 
+  }
+  
   // P20 XBleed
   val = (digitalRead(sw_XBleed_Open) == LOW); if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
   // P21 Elec
   val = (digitalRead(sw_ElecPump) == LOW); if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
   // P22 PTU
   val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1; if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
-  // P23/24 Packs
-  val = (digitalRead(sw_Pack1) == LOW); if (val != last_Pack1) { pan_Pack1 = val; last_Pack1 = val; changeTimer[sw_Pack1] = millis(); }
-  val = (digitalRead(sw_Pack2) == LOW); if (val != last_Pack2) { pan_Pack2 = val; last_Pack2 = val; changeTimer[sw_Pack2] = millis(); }
+  
+  // P23/24 Packs (PACK LOGIC FIX)
+  // LOW = 0 (OFF), HIGH = 1 (ON)
+  val = (digitalRead(sw_Pack1) == LOW) ? 0 : 1; 
+  if (val != last_Pack1) { pan_Pack1 = val; last_Pack1 = val; changeTimer[sw_Pack1] = millis(); }
+  
+  val = (digitalRead(sw_Pack2) == LOW) ? 0 : 1; 
+  if (val != last_Pack2) { pan_Pack2 = val; last_Pack2 = val; changeTimer[sw_Pack2] = millis(); }
 }
 
 void updateModelOutputs() {
   
   // 1. DIMMING CALCULATION
-  // Default: Day (1.0)
   brightnessScale = 1.0;
-  
-  // Serial Override: Night (0.5)
   if (serialNightMode) brightnessScale = 0.5;
-  
-  // Hardware Switch Override: DIM (0.3) - Stärker als alles andere
   if (digitalRead(sw_Dome_Dim) == LOW) brightnessScale = 0.3;
 
   // 2. SERVO TARGETS
@@ -379,7 +401,7 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v6.5) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v6.7) ---"); 
     Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
     Serial.print(" | ENG: "); Serial.print(run_eng ? "ON" : "OFF");
     Serial.print(" | DIM: "); 
@@ -388,7 +410,7 @@ void printDebugTable() {
     else Serial.println("DAY (100%)");
 
     Serial.println("PIN/TEENSY/NAME      | PANEL | BLOCK | SIM (Read)");
-    printRow("03", 18, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
+    printRow("03", 15, "BEACON", digitalRead(sw_Beacon), last_Beacon, mod_Beacon);
     printRow("04", 16, "STROBE", digitalRead(sw_Strobe_On), last_Strobe, mod_Strobe);
     printRow("05", 17, "NAV",    digitalRead(sw_Nav_Master), last_Nav, mod_Nav);
     Serial.print("P06/07 NOSE (TX/TO)  | "); if (digitalRead(sw_Nose_TO)==LOW) Serial.print("TO "); else if (digitalRead(sw_Nose_Taxi)==HIGH) Serial.print("TAXI"); else Serial.print("OFF ");
