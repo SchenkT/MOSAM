@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v6.8 - A330 AUTO-DETECT & LOGIC UPDATE
+//      MOSAM v7.4 - TOTAL WEIGHT (PHYSICS) DETECT
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -58,9 +58,11 @@ const unsigned long STARTUP_DELAY = 1500;
 const unsigned long DETECT_STABLE_TIME = 500; 
 
 // --- A330 DETECTION VARS ---
-bool isA330 = false;
+// WICHTIG: Standard ist TRUE (Safe Mode/A330), damit die RAT nicht aus Versehen fliegt!
+bool isA330 = true; 
 bool typeCheckDone = false;
-char acf_icao_buf[10]; // Puffer für ICAO Code
+unsigned long lastTypeCheck = 0;
+float debugWeight = 0.0; // Zum Speichern für die Anzeige
 
 // --- STATE MEMORY ---
 int last_Beacon = -1; int last_Strobe = -1; int last_Nav = -1;
@@ -100,7 +102,6 @@ FlightSimInteger pan_Pack2;
 FlightSimInteger pan_APUB_330; 
 FlightSimInteger pan_Dome_330;
 FlightSimInteger pan_NoPed_330; // [12] No PED Signs
-FlightSimString acf_icao_ref;   // Zur Erkennung
 
 // --- READ REFS ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
@@ -110,7 +111,8 @@ FlightSimInteger mod_Seat; FlightSimInteger mod_APU;
 
 FlightSimInteger xGearHandle; FlightSimFloat xOnGround; 
 FlightSimFloat xBank; FlightSimFloat xPitch;       
-FlightSimFloat xEng1N1; FlightSimFloat xEng2N1;      
+FlightSimFloat xEng1N1; FlightSimFloat xEng2N1; 
+FlightSimFloat physics_total_weight; // Echtes Physik-Gewicht
 
 // --- INTERNALS ---
 float noseCurrent = 5; int noseTarget = 5; float mainCurrent = 5; int mainTarget = 5;
@@ -165,8 +167,10 @@ void setup() {
   xEng1N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
   xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
   
-  // A330 DETECTION
-  acf_icao_ref = XPlaneRef("sim/aircraft/view/acf_ICAO");
+  // A330 DETECTION VIA PHYSICS TOTAL WEIGHT
+  // Das ist ein dynamischer Wert, der immer gestreamt wird.
+  // sim/flightmodel/weight/m_total (float, kg)
+  physics_total_weight = XPlaneRef("sim/flightmodel/weight/m_total");
 
   // --- WRITE REFS ---
   pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); 
@@ -216,7 +220,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v6.8 PACK FIX & A330 DETECT ---");
+  Serial.println("--- MOSAM v7.4 WEIGHT DETECT ---");
 }
 
 void loop() {
@@ -242,18 +246,29 @@ void loop() {
       }
   }
 
-  // A330 Type Detection (One Time Check after 3 seconds)
-  if (!typeCheckDone && now > 3000) {
-      acf_icao_ref.read(acf_icao_buf, 9);
-      String acfType = String(acf_icao_buf);
-      if (acfType.indexOf("A33") != -1) {
-          isA330 = true;
-          Serial.println("SYS: A330 DETECTED - HYD PROTECTION ACTIVE");
-      } else {
-          isA330 = false;
-          Serial.println("SYS: A320 MODE (STD)");
+  // --- FAIL-SAFE AIRCRAFT DETECTION VIA PHYSICS WEIGHT ---
+  // Wir prüfen alle 2 Sekunden, bis wir eine gültige Messung haben (>1000kg).
+  if (now - lastTypeCheck > 2000) {
+      lastTypeCheck = now;
+      float weight = physics_total_weight; // Wert in KG
+      debugWeight = weight; // Für Print Ausgabe speichern
+      
+      // Nur wenn wir einen realistischen Wert haben (größer 1 Tonne)
+      if (weight > 1000.0) {
+          if (weight > 100000.0) {
+              // Über 100 Tonnen -> Definitiv A330 (Leer ~120t)
+              isA330 = true;
+              if(!typeCheckDone) Serial.print("SYS: CONFIRMED A330 - WEIGHT: "); Serial.println(weight);
+              typeCheckDone = true;
+          } 
+          else {
+              // Unter 100 Tonnen -> Definitiv A320 (Max ~79t)
+              isA330 = false;
+              if(!typeCheckDone) Serial.print("SYS: CONFIRMED A320 - WEIGHT: "); Serial.println(weight);
+              typeCheckDone = true;
+          }
       }
-      typeCheckDone = true;
+      // Wenn weight == 0.00, bleiben wir im A330 Safe Mode und warten weiter.
   }
 
   // 2. PANEL INPUT UPDATE
@@ -361,14 +376,17 @@ void updatePanelInputs() {
   // P20 XBleed
   val = (digitalRead(sw_XBleed_Open) == LOW); if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
   
-  // HYDRAULIK PROTECTION A330
+  // HYDRAULIK PROTECTION A330 (FAIL-SAFE)
   if (!isA330) {
+      // NUR wenn wir SICHER sind, dass es ein A320 ist (Gewicht < 100t),
+      // erlauben wir den Zugriff auf diese Schalter.
+      
       // P21 Elec
       val = (digitalRead(sw_ElecPump) == LOW); if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
       // P22 PTU
       val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1; if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
   } else {
-      // Bei A330 passiert hier NICHTS
+      // Wenn wir im A330 Modus (oder unsicher/0.00kg) sind, machen wir NICHTS.
   }
   
   // P23/24 Packs (PACK LOGIC FIX)
@@ -458,9 +476,11 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v6.8) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v7.4) ---"); 
     Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
-    Serial.print(" | TYPE: "); Serial.print(isA330 ? "A330" : "A320");
+    Serial.print(" | TYPE: "); Serial.print(isA330 ? "A330 (SAFE)" : "A320");
+    // NEU: Weight Ausgabe
+    Serial.print(" | KG: "); Serial.print(debugWeight);
     Serial.print(" | DIM: "); 
     if (brightnessScale < 0.4) Serial.println("HARD (30%)");
     else if (brightnessScale < 0.9) Serial.println("NIGHT (50%)");
