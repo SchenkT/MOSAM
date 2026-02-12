@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v6.7 - PACK LOGIC FIX & A330 SUPPORT
+//      MOSAM v6.8 - A330 AUTO-DETECT & LOGIC UPDATE
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -18,10 +18,10 @@ const int pinSupFront = 41; const int pinProgButton = 33;
 
 // --- PINS (INPUTS PANEL - SUB-D MAPPING) ---
 const int pinOHP_Detect = 1;   // P01 (Detect)
-const int sw_Beacon = 15;      // P03 (Pin 15)
+const int sw_Beacon = 18;//15;      // P03 (Pin 15)
 const int sw_Strobe_On = 16;   // P04
 const int sw_Nav_Master = 17;  // P05
-const int sw_Nose_Taxi = 23;   // P06 (Pin 23)
+const int sw_Nose_Taxi = 19;//23;   // P06 (Pin 23)
 const int sw_Nose_TO = 20;     // P07
 const int sw_RwyTurnoff = 21;  // P08
 const int sw_Landing_Master = 22; // P09
@@ -56,6 +56,11 @@ unsigned long detectDebounceStart = 0;
 bool detectPinStable = false;
 const unsigned long STARTUP_DELAY = 1500; 
 const unsigned long DETECT_STABLE_TIME = 500; 
+
+// --- A330 DETECTION VARS ---
+bool isA330 = false;
+bool typeCheckDone = false;
+char acf_icao_buf[10]; // Puffer für ICAO Code
 
 // --- STATE MEMORY ---
 int last_Beacon = -1; int last_Strobe = -1; int last_Nav = -1;
@@ -94,6 +99,8 @@ FlightSimInteger pan_Pack2;
 // --- NEW A330 REFS ---
 FlightSimInteger pan_APUB_330; 
 FlightSimInteger pan_Dome_330;
+FlightSimInteger pan_NoPed_330; // [12] No PED Signs
+FlightSimString acf_icao_ref;   // Zur Erkennung
 
 // --- READ REFS ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
@@ -157,6 +164,9 @@ void setup() {
   xPitch = XPlaneRef("sim/flightmodel/position/true_theta"); 
   xEng1N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[0]");
   xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
+  
+  // A330 DETECTION
+  acf_icao_ref = XPlaneRef("sim/aircraft/view/acf_ICAO");
 
   // --- WRITE REFS ---
   pan_Beacon    = XPlaneRef("AirbusFBW/OHPLightSwitches[0]"); 
@@ -188,6 +198,7 @@ void setup() {
   // --- NEW A330 REFS ---
   pan_APUB_330  = XPlaneRef("AirbusFBW/APUBleedSwitch"); 
   pan_Dome_330  = XPlaneRef("AirbusFBW/OHPLightSwitches[13]"); 
+  pan_NoPed_330 = XPlaneRef("AirbusFBW/OHPLightSwitches[12]");
 
   // PINS
   pinMode(pinNoseLight, OUTPUT); pinMode(pinWingStrobes, OUTPUT); pinMode(pinTailCombined, OUTPUT); 
@@ -205,7 +216,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v6.7 PACK FIX & A330 ---");
+  Serial.println("--- MOSAM v6.8 PACK FIX & A330 DETECT ---");
 }
 
 void loop() {
@@ -229,6 +240,20 @@ void loop() {
           if (ohpConnected) { Serial.println("SYS: PANEL DISCONNECTED"); }
           ohpConnected = false;
       }
+  }
+
+  // A330 Type Detection (One Time Check after 3 seconds)
+  if (!typeCheckDone && now > 3000) {
+      acf_icao_ref.read(acf_icao_buf, 9);
+      String acfType = String(acf_icao_buf);
+      if (acfType.indexOf("A33") != -1) {
+          isA330 = true;
+          Serial.println("SYS: A330 DETECTED - HYD PROTECTION ACTIVE");
+      } else {
+          isA330 = false;
+          Serial.println("SYS: A320 MODE (STD)");
+      }
+      typeCheckDone = true;
   }
 
   // 2. PANEL INPUT UPDATE
@@ -273,10 +298,36 @@ void updatePanelInputs() {
   if (noseState != last_Nose) { pan_Nose = noseState; last_Nose = noseState; changeTimer[sw_Nose_TO] = millis(); }
   // P08 Rwy
   val = (digitalRead(sw_RwyTurnoff) == LOW); if (val != last_Rwy) { pan_Rwy = val; last_Rwy = val; changeTimer[sw_RwyTurnoff] = millis(); }
-  // P09 Landing
-  val = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0; if (val != last_Land) { pan_LandL = val; pan_LandR = val; last_Land = val; changeTimer[sw_Landing_Master] = millis(); }
-  // P10 Seatbelt
-  val = (digitalRead(sw_Seatbelts) == LOW); if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
+  
+  // P09 Landing (A330 LOGIK CHANGE)
+  // A330: ON=1, A320: ON=2
+  int landTarget = 0;
+  if (isA330) {
+      landTarget = (digitalRead(sw_Landing_Master) == LOW) ? 1 : 0;
+  } else {
+      landTarget = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0;
+  }
+  if (landTarget != last_Land) { 
+      pan_LandL = landTarget; pan_LandR = landTarget; 
+      last_Land = landTarget; changeTimer[sw_Landing_Master] = millis(); 
+  }
+
+  // P10 Seatbelt (A330 LOGIK CHANGE)
+  if (isA330) {
+      // A330: Schalter AUS (HIGH) = 1 (AUTO), Schalter EIN (LOW) = 2 (ON)
+      // Gleichzeitig [11] und [12] bedienen
+      int seatVal = (digitalRead(sw_Seatbelts) == LOW) ? 2 : 1; 
+      if (seatVal != last_Seat) {
+          pan_Seat = seatVal;      // [11] Signs
+          pan_NoPed_330 = seatVal; // [12] No PED
+          last_Seat = seatVal;
+          changeTimer[sw_Seatbelts] = millis();
+      }
+  } else {
+      // A320 Logik (Original)
+      val = (digitalRead(sw_Seatbelts) == LOW); 
+      if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
+  }
   
   // P11 Dome (UPDATE A330)
   val = (digitalRead(sw_Dome_Dim) == LOW); // 1=DIM/ON, 0=OFF
@@ -309,10 +360,16 @@ void updatePanelInputs() {
   
   // P20 XBleed
   val = (digitalRead(sw_XBleed_Open) == LOW); if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
-  // P21 Elec
-  val = (digitalRead(sw_ElecPump) == LOW); if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
-  // P22 PTU
-  val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1; if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
+  
+  // HYDRAULIK PROTECTION A330
+  if (!isA330) {
+      // P21 Elec
+      val = (digitalRead(sw_ElecPump) == LOW); if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
+      // P22 PTU
+      val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1; if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
+  } else {
+      // Bei A330 passiert hier NICHTS
+  }
   
   // P23/24 Packs (PACK LOGIC FIX)
   // LOW = 0 (OFF), HIGH = 1 (ON)
@@ -401,9 +458,9 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v6.7) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v6.8) ---"); 
     Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
-    Serial.print(" | ENG: "); Serial.print(run_eng ? "ON" : "OFF");
+    Serial.print(" | TYPE: "); Serial.print(isA330 ? "A330" : "A320");
     Serial.print(" | DIM: "); 
     if (brightnessScale < 0.4) Serial.println("HARD (30%)");
     else if (brightnessScale < 0.9) Serial.println("NIGHT (50%)");
