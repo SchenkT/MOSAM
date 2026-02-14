@@ -2,7 +2,7 @@
 #include <Servo.h>
 
 // =========================================================
-//      MOSAM v7.4 - TOTAL WEIGHT (PHYSICS) DETECT
+//      MOSAM v7.6 - 0% GND & PITCH DOWN BOOST
 // =========================================================
 
 // --- SERVO OBJEKTE ---
@@ -58,11 +58,10 @@ const unsigned long STARTUP_DELAY = 1500;
 const unsigned long DETECT_STABLE_TIME = 500; 
 
 // --- A330 DETECTION VARS ---
-// WICHTIG: Standard ist TRUE (Safe Mode/A330), damit die RAT nicht aus Versehen fliegt!
 bool isA330 = true; 
 bool typeCheckDone = false;
 unsigned long lastTypeCheck = 0;
-float debugWeight = 0.0; // Zum Speichern für die Anzeige
+float debugWeight = 0.0; 
 
 // --- STATE MEMORY ---
 int last_Beacon = -1; int last_Strobe = -1; int last_Nav = -1;
@@ -101,7 +100,7 @@ FlightSimInteger pan_Pack2;
 // --- NEW A330 REFS ---
 FlightSimInteger pan_APUB_330; 
 FlightSimInteger pan_Dome_330;
-FlightSimInteger pan_NoPed_330; // [12] No PED Signs
+FlightSimInteger pan_NoPed_330; 
 
 // --- READ REFS ---
 FlightSimInteger mod_Nav; FlightSimInteger mod_Beacon; FlightSimInteger mod_Strobe;
@@ -112,7 +111,7 @@ FlightSimInteger mod_Seat; FlightSimInteger mod_APU;
 FlightSimInteger xGearHandle; FlightSimFloat xOnGround; 
 FlightSimFloat xBank; FlightSimFloat xPitch;       
 FlightSimFloat xEng1N1; FlightSimFloat xEng2N1; 
-FlightSimFloat physics_total_weight; // Echtes Physik-Gewicht
+FlightSimFloat physics_total_weight; 
 
 // --- INTERNALS ---
 float noseCurrent = 5; int noseTarget = 5; float mainCurrent = 5; int mainTarget = 5;
@@ -132,12 +131,18 @@ const int REFRESH_RATE=10; const float SPEED_GEAR=0.05; const float SPEED_MOTION
 const int ENG_IDLE_MIN=15; const int ENG_KICK_VAL=30; const int ENG_KICK_TIME=350;
 const int VAL_OFF=0; const int VAL_TAXI=10; const int VAL_TO=40; const int STROBE_FLASH_VAL=50; 
 const int NAV_WING_VAL=40; const int NAV_TAIL_DIM=10; const int BEACON_VAL=255; const int VAL_LANDING_MAX=100;
+
+// POSITIONS
 const int NOSE_POS_UP = 40; const int NOSE_POS_DOWN = 5;   
 const int MAIN_POS_UP = 65; const int MAIN_POS_DOWN = 5;   
 const int SUP_L_RETRACT = 110; const int SUP_L_EXTEND = 0;   
 const int SUP_R_RETRACT = 0; const int SUP_R_EXTEND = 110;  
 const int SUP_F_RETRACT = 0; const int SUP_F_EXTEND = 110;  
-const int MOTION_NEUTRAL = 50; const int AIR_LIFT_OFFSET = 15; 
+
+// MOTION HEIGHTS (0-100)
+const int MOTION_NEUTRAL = 50; 
+const int LIFT_GND = 0;  // FIX: 0% am Boden
+const int LIFT_AIR = 80; // Höhe im Flug (Ausgefedert)
 
 // Forward Decl
 void updateHydraulics(); void updatePanelInputs(); void updateModelOutputs(); void waitAndAnimate(int waitTime); 
@@ -168,8 +173,6 @@ void setup() {
   xEng2N1 = XPlaneRef("AirbusFBW/fmod/eng/N1Array[1]");
   
   // A330 DETECTION VIA PHYSICS TOTAL WEIGHT
-  // Das ist ein dynamischer Wert, der immer gestreamt wird.
-  // sim/flightmodel/weight/m_total (float, kg)
   physics_total_weight = XPlaneRef("sim/flightmodel/weight/m_total");
 
   // --- WRITE REFS ---
@@ -220,7 +223,7 @@ void setup() {
   noseGear.attach(pinNoseServo); mainGear.attach(pinMainServo); supLeft.attach(pinSupLeft); supRight.attach(pinSupRight); supFront.attach(pinSupFront);
   noseGear.write((int)noseCurrent); mainGear.write((int)mainCurrent); supLeft.write(SUP_L_RETRACT); supRight.write(SUP_R_RETRACT); supFront.write(SUP_F_RETRACT);
 
-  Serial.println("--- MOSAM v7.4 WEIGHT DETECT ---");
+  Serial.println("--- MOSAM v7.6 PITCH BOOST ---");
 }
 
 void loop() {
@@ -247,28 +250,23 @@ void loop() {
   }
 
   // --- FAIL-SAFE AIRCRAFT DETECTION VIA PHYSICS WEIGHT ---
-  // Wir prüfen alle 2 Sekunden, bis wir eine gültige Messung haben (>1000kg).
   if (now - lastTypeCheck > 2000) {
       lastTypeCheck = now;
-      float weight = physics_total_weight; // Wert in KG
-      debugWeight = weight; // Für Print Ausgabe speichern
+      float weight = physics_total_weight; 
+      debugWeight = weight; 
       
-      // Nur wenn wir einen realistischen Wert haben (größer 1 Tonne)
       if (weight > 1000.0) {
           if (weight > 100000.0) {
-              // Über 100 Tonnen -> Definitiv A330 (Leer ~120t)
               isA330 = true;
-              if(!typeCheckDone) Serial.print("SYS: CONFIRMED A330 - WEIGHT: "); Serial.println(weight);
+              if(!typeCheckDone) Serial.println("SYS: CONFIRMED A330 (HEAVY)");
               typeCheckDone = true;
           } 
           else {
-              // Unter 100 Tonnen -> Definitiv A320 (Max ~79t)
               isA330 = false;
-              if(!typeCheckDone) Serial.print("SYS: CONFIRMED A320 - WEIGHT: "); Serial.println(weight);
+              if(!typeCheckDone) Serial.println("SYS: CONFIRMED A320 (MEDIUM)");
               typeCheckDone = true;
           }
       }
-      // Wenn weight == 0.00, bleiben wir im A330 Safe Mode und warten weiter.
   }
 
   // 2. PANEL INPUT UPDATE
@@ -302,98 +300,49 @@ void loop() {
 
 void updatePanelInputs() {
   int val; 
-  // P03 Beacon
   val = (digitalRead(sw_Beacon) == LOW); if (val != last_Beacon) { pan_Beacon = val; last_Beacon = val; changeTimer[sw_Beacon] = millis(); }
-  // P04 Strobe
   val = (digitalRead(sw_Strobe_On) == LOW) ? 2 : 1; if (val != last_Strobe) { pan_Strobe = val; last_Strobe = val; changeTimer[sw_Strobe_On] = millis(); }
-  // P05 Nav
   val = (digitalRead(sw_Nav_Master) == LOW) ? 2 : 0; if (val != last_Nav) { pan_Nav = val; last_Nav = val; changeTimer[sw_Nav_Master] = millis(); }
-  // P06/07 Nose
   int noseState = 0; if (digitalRead(sw_Nose_TO) == LOW) noseState = 2; else if (digitalRead(sw_Nose_Taxi) == HIGH) noseState = 1; 
   if (noseState != last_Nose) { pan_Nose = noseState; last_Nose = noseState; changeTimer[sw_Nose_TO] = millis(); }
-  // P08 Rwy
   val = (digitalRead(sw_RwyTurnoff) == LOW); if (val != last_Rwy) { pan_Rwy = val; last_Rwy = val; changeTimer[sw_RwyTurnoff] = millis(); }
-  
-  // P09 Landing (A330 LOGIK CHANGE)
-  // A330: ON=1, A320: ON=2
   int landTarget = 0;
   if (isA330) {
       landTarget = (digitalRead(sw_Landing_Master) == LOW) ? 1 : 0;
   } else {
       landTarget = (digitalRead(sw_Landing_Master) == LOW) ? 2 : 0;
   }
-  if (landTarget != last_Land) { 
-      pan_LandL = landTarget; pan_LandR = landTarget; 
-      last_Land = landTarget; changeTimer[sw_Landing_Master] = millis(); 
-  }
+  if (landTarget != last_Land) { pan_LandL = landTarget; pan_LandR = landTarget; last_Land = landTarget; changeTimer[sw_Landing_Master] = millis(); }
 
-  // P10 Seatbelt (A330 LOGIK CHANGE)
   if (isA330) {
-      // A330: Schalter AUS (HIGH) = 1 (AUTO), Schalter EIN (LOW) = 2 (ON)
-      // Gleichzeitig [11] und [12] bedienen
       int seatVal = (digitalRead(sw_Seatbelts) == LOW) ? 2 : 1; 
-      if (seatVal != last_Seat) {
-          pan_Seat = seatVal;      // [11] Signs
-          pan_NoPed_330 = seatVal; // [12] No PED
-          last_Seat = seatVal;
-          changeTimer[sw_Seatbelts] = millis();
-      }
+      if (seatVal != last_Seat) { pan_Seat = seatVal; pan_NoPed_330 = seatVal; last_Seat = seatVal; changeTimer[sw_Seatbelts] = millis(); }
   } else {
-      // A320 Logik (Original)
       val = (digitalRead(sw_Seatbelts) == LOW); 
       if (val != last_Seat) { pan_Seat = val; last_Seat = val; changeTimer[sw_Seatbelts] = millis(); }
   }
   
-  // P11 Dome (UPDATE A330)
-  val = (digitalRead(sw_Dome_Dim) == LOW); // 1=DIM/ON, 0=OFF
-  if (val != last_Dome) { 
-      pan_Dome = val; 
-      pan_Dome_330 = val; // Index 13 für A330
-      last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); 
-  }
+  val = (digitalRead(sw_Dome_Dim) == LOW); 
+  if (val != last_Dome) { pan_Dome = val; pan_Dome_330 = val; last_Dome = val; changeTimer[sw_Dome_Dim] = millis(); }
   
-  // P14 Call
   val = (digitalRead(sw_Call_Btn) == LOW); if (val != last_Call) { if (val == 1) cmd_Call.once(); last_Call = val; changeTimer[sw_Call_Btn] = millis(); }
-  // P12/13 Wiper
   int wiperState = 0; if (digitalRead(sw_Wiper_Fast) == LOW) wiperState = 2; else if (digitalRead(sw_Wiper_Slow) == LOW) wiperState = 1;
   if (digitalRead(sw_Wiper_Slow) != last_WiperS || digitalRead(sw_Wiper_Fast) != last_WiperF) { pan_Wiper = wiperState; last_WiperS = digitalRead(sw_Wiper_Slow); last_WiperF = digitalRead(sw_Wiper_Fast); changeTimer[sw_Wiper_Slow] = millis(); }
-  // P15/16 Ice
   val = (digitalRead(sw_Ice_Wing) == LOW); if (val != last_IceW) { pan_IceW = val; last_IceW = val; changeTimer[sw_Ice_Wing] = millis(); }
   val = (digitalRead(sw_Ice_Eng_Comb) == LOW); if (val != last_IceE) { pan_IceE1 = val; pan_IceE2 = val; last_IceE = val; changeTimer[sw_Ice_Eng_Comb] = millis(); }
-  // P17 APU M
   val = (digitalRead(sw_APU_Master) == LOW); if (val != last_APUM) { pan_APUM = val; last_APUM = val; changeTimer[sw_APU_Master] = millis(); }
-  // P18 APU S
   val = (digitalRead(sw_APU_Start) == LOW); if (val != last_APUS) { if (val == 1) pan_APUS = 1; last_APUS = val; changeTimer[sw_APU_Start] = millis(); }
-  
-  // P19 APU B (UPDATE A330)
   val = (digitalRead(sw_APU_Bleed) == LOW); 
-  if (val != last_APUB) { 
-      pan_APUB = val; 
-      pan_APUB_330 = val; // Extra Ref für A330
-      last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); 
-  }
-  
-  // P20 XBleed
+  if (val != last_APUB) { pan_APUB = val; pan_APUB_330 = val; last_APUB = val; changeTimer[sw_APU_Bleed] = millis(); }
   val = (digitalRead(sw_XBleed_Open) == LOW); if (val != last_XBleed) { pan_XBleed = val ? 2 : 1; last_XBleed = val; changeTimer[sw_XBleed_Open] = millis(); }
   
-  // HYDRAULIK PROTECTION A330 (FAIL-SAFE)
   if (!isA330) {
-      // NUR wenn wir SICHER sind, dass es ein A320 ist (Gewicht < 100t),
-      // erlauben wir den Zugriff auf diese Schalter.
-      
-      // P21 Elec
       val = (digitalRead(sw_ElecPump) == LOW); if (val != last_Elec) { pan_HydElec = val; last_Elec = val; changeTimer[sw_ElecPump] = millis(); }
-      // P22 PTU
       val = (digitalRead(sw_PTU_Off) == LOW) ? 0 : 1; if (val != last_PTU) { pan_HydPTU = val; last_PTU = val; changeTimer[sw_PTU_Off] = millis(); }
-  } else {
-      // Wenn wir im A330 Modus (oder unsicher/0.00kg) sind, machen wir NICHTS.
   }
   
-  // P23/24 Packs (PACK LOGIC FIX)
-  // LOW = 0 (OFF), HIGH = 1 (ON)
   val = (digitalRead(sw_Pack1) == LOW) ? 0 : 1; 
   if (val != last_Pack1) { pan_Pack1 = val; last_Pack1 = val; changeTimer[sw_Pack1] = millis(); }
-  
   val = (digitalRead(sw_Pack2) == LOW) ? 0 : 1; 
   if (val != last_Pack2) { pan_Pack2 = val; last_Pack2 = val; changeTimer[sw_Pack2] = millis(); }
 }
@@ -405,19 +354,36 @@ void updateModelOutputs() {
   if (serialNightMode) brightnessScale = 0.5;
   if (digitalRead(sw_Dome_Dim) == LOW) brightnessScale = 0.3;
 
-  // 2. SERVO TARGETS
+  // 2. SERVO TARGETS (MOTION LOGIC)
   if (FlightSim.isEnabled() || calMode) {
+      // Retractable Gear (Plastic Parts) - Remains based on Handle
       if (xGearHandle == 1) { noseTarget = NOSE_POS_DOWN; mainTarget = MAIN_POS_DOWN; } 
       else { noseTarget = NOSE_POS_UP; mainTarget = MAIN_POS_UP; }
 
       float p = xPitch; float r = xBank;
       if(calMode) { p = 0; r = calTargetBank; } 
-      int pitchOffset = (int)(p * 1.5); 
+      
+      // --- NEU: PITCH CALCULATION ---
+      // Wenn Pitch < 0 (Nose Down/Braking), Verstärkung erhöhen (3.0)
+      // Wenn Pitch > 0 (Rotation), Normal (1.5)
+      float pitchFactor = 1.5;
+      if (p < 0) pitchFactor = 3.0; // Verstärker für Down-Pitch
+      
+      int pitchOffset = (int)(p * pitchFactor); 
       int bankOffset  = (int)(r * 1.5);
 
-      supFTarget = constrain(MOTION_NEUTRAL + pitchOffset, 0, 100); 
-      supLTarget = constrain(MOTION_NEUTRAL - pitchOffset + bankOffset, 0, 100);
-      supRTarget = constrain(MOTION_NEUTRAL - pitchOffset - bankOffset, 0, 100);
+      // HÖHE
+      int currentBaseLift = 0;
+      if (xOnGround > 0.5) {
+          currentBaseLift = LIFT_GND; // Jetzt 0
+      } else {
+          currentBaseLift = LIFT_AIR; // 80
+      }
+
+      // Berechnung der Servo-Ziele
+      supFTarget = constrain(currentBaseLift + pitchOffset, 0, 100); 
+      supLTarget = constrain(currentBaseLift - pitchOffset + bankOffset, 0, 100);
+      supRTarget = constrain(currentBaseLift - pitchOffset - bankOffset, 0, 100);
   }
 
   updateHydraulics();
@@ -476,10 +442,9 @@ void printRow(String sub, int pin, String name, int switchVal, int lastVal, long
 }
 
 void printDebugTable() {
-    Serial.println("\n--- DEBUG STATUS (v7.4) ---"); 
+    Serial.println("\n--- DEBUG STATUS (v7.6) ---"); 
     Serial.print("PANEL: "); Serial.print(ohpConnected ? "CONN" : "DISC");
     Serial.print(" | TYPE: "); Serial.print(isA330 ? "A330 (SAFE)" : "A320");
-    // NEU: Weight Ausgabe
     Serial.print(" | KG: "); Serial.print(debugWeight);
     Serial.print(" | DIM: "); 
     if (brightnessScale < 0.4) Serial.println("HARD (30%)");
